@@ -16,6 +16,7 @@
 {{- if .Values.serviceAccounts.create }}
 apiVersion: v1
 kind: ServiceAccount
+automountServiceAccountToken: {{ .Values.serviceAccounts.automountToken }}
 metadata:
   name: {{ .Values.frontend.name }}
   namespace: {{.Release.Namespace}}
@@ -35,6 +36,9 @@ metadata:
   labels:
     app: {{ .Values.frontend.name }}
 spec:
+  {{- with .Values.frontend.replicas }}
+  replicas: {{ . }}
+  {{- end }}
   selector:
     matchLabels:
       app: {{ .Values.frontend.name }}
@@ -44,6 +48,10 @@ spec:
         app: {{ .Values.frontend.name }}
       annotations:
         sidecar.istio.io/rewriteAppHTTPProbers: "true"
+        {{- if .Values.frontend.configMap.create }}
+        # Kiratech: roll the pods when the ConfigMap changes (envFrom is read only at start).
+        checksum/config: {{ printf "%s|%s|%s" .Values.frontend.platform (toString .Values.frontend.cymbalBranding) (toString .Values.frontend.singleSharedSession) | sha256sum }}
+        {{- end }}
     spec:
       {{- if .Values.serviceAccounts.create }}
       serviceAccountName: {{ .Values.frontend.name }}
@@ -70,7 +78,12 @@ spec:
                 - ALL
             privileged: false
             readOnlyRootFilesystem: true
+          {{- /* Kiratech: optional per-service image override (we build only the frontend). */}}
+          {{- if .Values.frontend.image }}
+          image: {{ .Values.frontend.image }}
+          {{- else }}
           image: {{ .Values.images.repository }}/{{ .Values.frontend.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}
+          {{- end }}
           ports:
           - containerPort: 8080
           readinessProbe:
@@ -108,8 +121,10 @@ spec:
             value: "{{ .Values.adService.name }}:9555"
           - name: SHOPPING_ASSISTANT_SERVICE_ADDR
             value: "{{ .Values.shoppingAssistantService.name }}:80"
+          {{- if not .Values.frontend.configMap.create }}
           - name: ENV_PLATFORM
             value: {{ .Values.frontend.platform | quote }}
+          {{- end }}
           {{- if .Values.opentelemetryCollector.create }}
           - name: COLLECTOR_SERVICE_ADDR
             value: "{{ .Values.opentelemetryCollector.name }}:4317"
@@ -124,14 +139,68 @@ spec:
           - name: ENABLE_PROFILER
             value: "1"
           {{- end }}
+          {{- if not .Values.frontend.configMap.create }}
           - name: CYMBAL_BRANDING
             value: {{ .Values.frontend.cymbalBranding | quote }}
+          {{- end }}
           - name: ENABLE_ASSISTANT
             value: {{ .Values.shoppingAssistantService.create | quote }}
+          {{- if not .Values.frontend.configMap.create }}
           - name: ENABLE_SINGLE_SHARED_SESSION
             value: {{ .Values.frontend.singleSharedSession | quote }}
+          {{- end }}
+          {{- if .Values.frontend.configMap.create }}
+          envFrom:
+          - configMapRef:
+              name: {{ .Values.frontend.name }}-config
+          {{- end }}
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
+{{- if .Values.frontend.configMap.create }}
+---
+# Kiratech: non-secret runtime settings of the frontend, separated from the Deployment (12-factor config).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.frontend.name }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.frontend.name }}
+data:
+  ENV_PLATFORM: {{ .Values.frontend.platform | quote }}
+  CYMBAL_BRANDING: {{ .Values.frontend.cymbalBranding | quote }}
+  ENABLE_SINGLE_SHARED_SESSION: {{ .Values.frontend.singleSharedSession | quote }}
+{{- end }}
+{{- if .Values.frontend.ingress.create }}
+---
+# Kiratech: HTTP entry point through the cluster's Ingress controller (Traefik on kind).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.frontend.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.frontend.name }}
+  {{- with .Values.frontend.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.frontend.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+  - host: {{ required "frontend.ingress.host is required when the Ingress is enabled" .Values.frontend.ingress.host | quote }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.frontend.name }}
+            port:
+              name: http
+{{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -193,6 +262,12 @@ spec:
       podSelector:
         matchLabels:
           {{ .Values.frontend.virtualService.gateway.labelKey }}: {{ .Values.frontend.virtualService.gateway.labelValue }}
+    {{- end }}
+    {{- if .Values.frontend.ingress.create }}
+    # Kiratech: allow traffic from the Ingress controller namespace.
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Values.frontend.ingress.controllerNamespace }}
     {{- end }}
     ports:
      - port: 8080
