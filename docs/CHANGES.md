@@ -6,7 +6,7 @@ tranne due file di workflow CI). Regola: si modifica l'upstream solo se serve a 
 
 | # | File | Tipo | Motivo | § challenge |
 |---|---|---|---|---|
-| 1 | `kind/cluster.yaml` | Aggiunto (F1), modificato (F2) | Cluster kind a nodo singolo, node image fissata per digest; in F2 porte 80/443 pubblicate su `127.0.0.1` e label `ingress-ready` per l'Ingress | §2.4 cluster locale, §4.3 |
+| 1 | `kind/cluster.yaml` | Aggiunto (F1), modificato (F2) | Cluster kind a nodo singolo, node image fissata per digest; in F2 porte 80/443 pubblicate su `127.0.0.1` e label `ingress-ready` per l'Ingress; lease di leader election più lunghi per controller-manager e scheduler (60s/40s/5s) contro i restart causati dalla lentezza di etcd su WSL2 durante i pull delle immagini | §2.4 cluster locale, §4.3 |
 | 2 | `scripts/cluster-up.sh` | Aggiunto | Creazione idempotente del cluster, ripartenza dopo un riavvio di WSL/Docker; in F2 si ferma se il cluster non ha le porte 80/443 | §2.4, §8 script |
 | 3 | `docs/ARCHITECTURE.md` | Aggiunto | Architettura, flussi, mappatura dei componenti | §3, §4.1 |
 | 4 | `docs/DECISIONS.md` | Aggiunto | Scelte di progetto e alternative | §10 motivare le scelte |

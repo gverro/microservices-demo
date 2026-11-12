@@ -20,3 +20,28 @@ nodes:
         hostPort: 443
         listenAddress: "127.0.0.1"
         protocol: TCP
+# Longer leader-election leases for controller-manager and scheduler (defaults: 15s / 10s / 2s).
+# Why: on WSL2, heavy image pulls slow etcd's disk writes; the API then answers in >5s, the components fail to renew
+# their lease and exit on purpose ("leaderelection lost"). With a single control-plane node there is no second
+# candidate, so longer leases only add tolerance, not risk. JSON6902 "add" appends to kind's own extraArgs list
+# (kubeadm v1beta4 uses a list of {name, value}; a merge patch would replace kind's defaults).
+kubeadmConfigPatchesJSON6902:
+  - group: kubeadm.k8s.io
+    version: v1beta4
+    kind: ClusterConfiguration
+    patch: |
+      - op: add
+        path: /controllerManager/extraArgs/-
+        value: {name: leader-elect-lease-duration, value: "60s"}
+      - op: add
+        path: /controllerManager/extraArgs/-
+        value: {name: leader-elect-renew-deadline, value: "40s"}
+      - op: add
+        path: /controllerManager/extraArgs/-
+        value: {name: leader-elect-retry-period, value: "5s"}
+      - op: add
+        path: /scheduler/extraArgs
+        value:
+          - {name: leader-elect-lease-duration, value: "60s"}
+          - {name: leader-elect-renew-deadline, value: "40s"}
+          - {name: leader-elect-retry-period, value: "5s"}
