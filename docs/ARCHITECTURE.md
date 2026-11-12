@@ -16,7 +16,8 @@ flowchart LR
     user([Browser / API consumer])
 
     subgraph cluster["Cluster Kubernetes · namespace dev / prod"]
-        ext{{"frontend-external<br/>Service LoadBalancer :80<br/>(da sostituire con Ingress/Gateway)"}}
+        ing{{"Ingress frontend<br/>dev.boutique.localhost / boutique.localhost"}}
+        tr[traefik<br/>Ingress controller · ns traefik<br/>hostPort 80/443]
         lg[loadgenerator<br/>Python · Locust]
         fe[frontend<br/>Go · HTTP :8080]
         ad[adservice<br/>Java · :9555]
@@ -31,7 +32,8 @@ flowchart LR
         redis[(redis-cart<br/>Redis · :6379<br/>emptyDir)]
     end
 
-    user -- HTTP --> ext --> fe
+    user -- "HTTP localhost:80<br/>(porta del nodo kind)" --> tr
+    tr -- "regola Ingress" --> ing --> fe
     lg -- "HTTP (Service frontend:80)" --> fe
     fe -- gRPC --> ad
     fe -- gRPC --> rec
@@ -101,32 +103,35 @@ va tenuto presente nelle soglie di allarme e non va confuso con i guasti simulat
 **Endpoint JSON:** `GET /product-meta/{ids}` (`src/frontend/main.go:162`) restituisce i metadati dei prodotti in JSON.
 È l'unica risposta non-HTML del frontend ed è minimale: in caso di errore risponde comunque 200 con corpo vuoto.
 
-## 4. Ingressi, storage, configurazione, sicurezza (stato upstream, VERIFICATO nel cluster)
+## 4. Ingressi, storage, configurazione, sicurezza (VERIFICATO nel cluster)
 
-| Aspetto | Com'è oggi | Cosa faremo |
+Prima colonna: chart upstream (F1). Seconda: stato dopo il packaging dev/prod (F2). Dettagli e verifiche in [`SECURITY.md`](SECURITY.md).
+
+| Aspetto | Upstream | Oggi (dev e prod) |
 |---|---|---|
-| Ingresso esterno | Service `frontend-external` di tipo `LoadBalancer`; su kind resta `<pending>` | Nessun Ingress nel chart: esposizione con Ingress o Gateway API (F2) |
-| Storage | Redis su `emptyDir`: i carrelli si perdono se il pod viene ricreato | Accettato per una demo; limite dichiarato |
-| Configurazione | Solo variabili d'ambiente nei Deployment; **nessuna ConfigMap applicativa** | ConfigMap e values diversi tra dev e prod (F2) |
-| Secret | **Nessun Secret applicativo**; Redis senza password | Password di Redis come Secret cifrato in Git (F2) |
-| Identità | Un ServiceAccount per servizio; `automountServiceAccountToken` non impostato (quindi token montato) | Disattivare il montaggio del token (F2) |
-| RBAC | Nessun Role/RoleBinding: i servizi non usano l'API Kubernetes | Privilegio minimo già rispettato; da dimostrare con `kubectl auth can-i` (F2) |
-| securityContext | `runAsNonRoot`, utente 1000, `readOnlyRootFilesystem`, `drop: ALL`, no privilege escalation | Già buono; `seccompProfile` disattivato di default |
-| NetworkPolicy | Presenti nel chart ma disattivate (`networkPolicies.create: false`) | Attivarle (F2). Il CNI di kind (kindnet) ha permessi `list/watch` sulle NetworkPolicy, segno che le applica: da confermare con un test di blocco |
-| Probe | gRPC health check su tutti i backend, HTTP `/_healthz` sul frontend, TCP su Redis; nessuna sul loadgenerator | Requisito "liveness/readiness" già in gran parte coperto dall'upstream |
-| Log | JSON su stdout per frontend, checkout, currency, email, payment, productcatalog, shipping, recommendation, ad; testo semplice per cartservice, Redis, loadgenerator | Gap applicativo solo su cartservice (F4) |
-| Immagini | Servizi fissati per **tag** `v0.10.7`; solo Redis e busybox per digest | Limite residuo: un tag può essere spostato; valutare il pin per digest (F2) |
+| Ingresso esterno | Service `frontend-external` `LoadBalancer`, `<pending>` su kind | **Ingress** servito da Traefik; porte 80/443 del nodo kind pubblicate su `127.0.0.1`; il LoadBalancer è disattivato |
+| Storage | Redis su `emptyDir`: i carrelli si perdono se il pod viene ricreato | Invariato: accettato per una demo, limite dichiarato |
+| Configurazione | Solo variabili d'ambiente nei Deployment | **ConfigMap** `frontend-config` (piattaforma, branding, sessione) + `deploy/values-common.yaml` e `values-<env>.yaml` |
+| Secret | Nessuno; Redis senza password | Password di Redis in un **Secret** generato da un `SealedSecret` cifrato in Git, diverso per ambiente |
+| Identità | Un ServiceAccount per servizio, token montato | Token **non** montato (`automountServiceAccountToken: false`) |
+| RBAC | Nessun Role/RoleBinding | App: nessun permesso (verificato con `kubectl auth can-i`); Role `ops-readonly` per gli operatori L2 |
+| securityContext | `runAsNonRoot`, utente 1000, `readOnlyRootFilesystem`, `drop: ALL` | In più seccomp `RuntimeDefault` |
+| NetworkPolicy | Nel chart ma disattivate | **Attive**: deny-all + una regola per servizio; kindnet le applica (test di blocco con pod esterno) |
+| Probe | gRPC sui backend, HTTP `/_healthz` sul frontend, TCP su Redis | Invariate (approfondimento nella fase di osservabilità) |
+| Spegnimento | Nessun hook | Frontend con `preStop` di 5 s: rolling update di prod senza errori (0 su 399 richieste, prima 3 su 417) |
+| Log | JSON su stdout quasi ovunque; testo su cartservice, Redis, loadgenerator | Invariato (gap su cartservice, fase di osservabilità) |
+| Immagini | Tag `v0.10.7`; Redis e busybox per digest | Frontend costruito da noi con base per digest; gli altri per tag (limite L5 in `SECURITY.md`) |
 
 ## 5. Mappatura dei componenti richiesti dalla challenge (PDF §3)
 
 | Componente richiesto | Implementazione | Gap / azione |
 |---|---|---|
 | Client / API consumer | Browser e `loadgenerator` (Locust); `curl` su `/product-meta/{ids}` | — |
-| Ingress o Route | Oggi Service LoadBalancer non funzionante su kind | **Gap**: Ingress o Gateway API (F2) |
+| Ingress o Route | Ingress `frontend` con Traefik (controller), un host per ambiente | Coperto. Gateway API come evoluzione possibile |
 | API Service (REST) | `frontend` espone HTTP (HTML) e un solo endpoint JSON minimale; il contratto vero tra servizi è gRPC (`demo.proto`) | **Gap parziale**, dichiarato |
 | Worker / componente asincrono | Nessuno: tutte le chiamate sono sincrone | **Gap**: un CronJob di smoke test come componente batch |
 | Database, cache, broker | Redis (stato del carrello); nessun broker | Broker assente, dichiarato |
-| ConfigMap e Secret | Assenti (solo env) | **Gap**: F2 |
+| ConfigMap e Secret | ConfigMap del frontend; Secret `redis-auth` da Sealed Secrets | Coperto (`SECURITY.md`) |
 | CI/CD o GitOps | Workflow upstream legati a Google Cloud (disattivati sul fork) | GitHub Actions + Argo CD (F3) |
 | Monitoring e logging | Log JSON quasi ovunque; integrazioni Google Cloud Operations disattivate; nessun `/metrics` Prometheus | Metrica nel frontend, Prometheus e Grafana (F4) |
 | Krateo | — | Blueprint e YAML concettuale, PoC se le risorse lo permettono (F6) |

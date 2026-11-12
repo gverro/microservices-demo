@@ -36,15 +36,26 @@ l'equivalenza senza un vantaggio chiaro, mentre Online Boutique è la scelta ind
 - [Sicurezza e limiti residui](docs/SECURITY.md)
 
 ## Avvio rapido (locale, kind)
-Prerequisiti: Docker, kind v0.33.0, kubectl v1.37.x, Helm v4.3.x, kubeseal v0.41.2 (solo per cifrare nuovi secret).
-Porte 80 e 443 libere su `localhost`.
+Prerequisiti: Docker, kind v0.33.0, kubectl v1.37.x, Helm v4.3.x, **kubeseal v0.41.2**, openssl.
+Porte 80 e 443 libere su `localhost`. Installazione di kubeseal con verifica del checksum ufficiale:
+```bash
+curl -sLO https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.41.2/kubeseal-0.41.2-linux-amd64.tar.gz
+echo "666b5db6788ad1dedb56e2d97064e1cc3779aa77bbd6f4b56b62beeb1941ed79  kubeseal-0.41.2-linux-amd64.tar.gz" | sha256sum -c -
+tar -xzf kubeseal-0.41.2-linux-amd64.tar.gz kubeseal && install -m 755 kubeseal ~/.local/bin/kubeseal
+```
 
 ```bash
 ./scripts/install.sh          # cluster + Traefik + Sealed Secrets + build del frontend + dev e prod (idempotente)
 ./scripts/backup-sealing-key.sh   # una volta sola, dopo la prima installazione: salva la chiave di Sealed Secrets fuori da Git
 ```
-Poi nel browser: **http://dev.boutique.localhost/** (dev) e **http://boutique.localhost/** (prod).
-I nomi `*.localhost` puntano a `127.0.0.1` nei browser moderni; con `curl` basta lo stesso URL.
+Poi: **http://dev.boutique.localhost/** (dev) e **http://boutique.localhost/** (prod). I nomi `*.localhost`
+puntano a `127.0.0.1` (verificato con `curl` da WSL; i browser moderni li risolvono allo stesso modo).
+
+**Secret su un clone nuovo.** I file `deploy/secrets/<env>/*.sealed.yaml` sono cifrati con la chiave del cluster
+dell'autore. Se il tuo cluster non la ha (nessun backup in `~/.config/kiratech-boutique/`), `install.sh` se ne accorge
+(`kubeseal --validate`), genera **nuove** password casuali cifrate per il tuo cluster e lo segnala: l'app funziona, i file
+risultano modificati in Git. Committali nel tuo fork se vuoi guidare il cluster da Git (GitOps), poi lancia
+`./scripts/backup-sealing-key.sh`. Dettagli in [SECURITY](docs/SECURITY.md).
 
 | | dev | prod |
 |---|---|---|
@@ -55,6 +66,31 @@ I nomi `*.localhost` puntano a `127.0.0.1` nei browser moderni; con `curl` basta
 
 Struttura: `helm-chart/` (chart upstream con opzioni aggiunte), `deploy/values-common.yaml` + `values-<env>.yaml`,
 `deploy/secrets/<env>/` (SealedSecret), `deploy/platform/` (Traefik). Dettagli in [CHANGES](docs/CHANGES.md) e [SECURITY](docs/SECURITY.md).
+
+### Build ed esecuzione locale del frontend (unico servizio ricompilato)
+```bash
+docker build -t frontend:v0.10.7-kt.1 src/frontend      # base distroless:nonroot fissata per digest
+docker run --rm -d --name fe-local -p 127.0.0.1:8081:8080 \
+  -e PRODUCT_CATALOG_SERVICE_ADDR=x:1 -e CURRENCY_SERVICE_ADDR=x:1 -e CART_SERVICE_ADDR=x:1 \
+  -e RECOMMENDATION_SERVICE_ADDR=x:1 -e CHECKOUT_SERVICE_ADDR=x:1 -e SHIPPING_SERVICE_ADDR=x:1 \
+  -e AD_SERVICE_ADDR=x:1 -e SHOPPING_ASSISTANT_SERVICE_ADDR=x:1 frontend:v0.10.7-kt.1
+curl -s localhost:8081/_healthz        # "ok": il processo parte e risponde anche senza backend
+docker stop fe-local                    # --rm: il container si rimuove da solo
+```
+Il frontend si ferma all'avvio se manca uno degli indirizzi `*_SERVICE_ADDR` (`mustMapEnv` in `src/frontend/main.go`).
+
+Variabili d'ambiente del frontend nel cluster:
+
+| Variabile | Da dove arriva | Esempio |
+|---|---|---|
+| `PORT` | env nel Deployment | `8080` |
+| `*_SERVICE_ADDR` (8 backend) | env nel Deployment, costruite dal chart | `cartservice:7070` |
+| `ENV_PLATFORM`, `CYMBAL_BRANDING`, `ENABLE_SINGLE_SHARED_SESSION` | **ConfigMap** `frontend-config` (`envFrom`) | `local`, `false`, `false` |
+| `ENABLE_ASSISTANT` | env nel Deployment | `false` |
+
+Per cartservice `REDIS_ADDR` vale `redis-cart:6379,password=$(REDIS_PASSWORD)`, con `REDIS_PASSWORD` letta dal **Secret** `redis-auth`.
+Dopo una modifica al codice del frontend si cambia il tag (in `scripts/install.sh` e `deploy/values-common.yaml`): l'immagine
+si ricostruisce solo se il tag non esiste già.
 
 Verifica rapida:
 ```bash

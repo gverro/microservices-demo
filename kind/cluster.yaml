@@ -39,6 +39,8 @@ kubeadmConfigPatchesJSON6902:
       - op: add
         path: /controllerManager/extraArgs/-
         value: {name: leader-elect-retry-period, value: "5s"}
+      # kind sets no scheduler args today (verified in /kind/kubeadm.conf: "extraArgs: null"), so "add" creates the list.
+      # If kind ever adds scheduler args (e.g. via featureGates), switch to "/scheduler/extraArgs/-" entries.
       - op: add
         path: /scheduler/extraArgs
         value:
