@@ -1,3 +1,38 @@
+# Online Boutique — Challenge tecnica L2 Kiratech
+
+Fork di [GoogleCloudPlatform/microservices-demo](https://github.com/GoogleCloudPlatform/microservices-demo)
+(release **v0.10.7**, licenza Apache-2.0) usato come workload della challenge. Il README originale prosegue
+più sotto, invariato.
+
+## Perché Online Boutique
+| Criterio del PDF (§2.2, §7.1) | Come lo soddisfa |
+|---|---|
+| Complessità realistica | 11 microservizi in 5 linguaggi (Go, C#, Node.js, Python, Java) + Redis + load generator |
+| Pertinenza cloud-native | Progettata per Kubernetes: un Deployment e un Service per servizio, health check gRPC, `securityContext` restrittivo |
+| Componenti multipli e protocolli diversi | HTTP verso l'esterno, gRPC tra i servizi, RESP verso Redis (unico componente stateful) |
+| Manifest o chart disponibili | Chart Helm, manifest semplici e Kustomize già mantenuti upstream: si parte da artefatti reali, non da zero |
+| Osservabilità | Log JSON nella maggior parte dei servizi e traffico continuo dal load generator: utile per metriche e troubleshooting |
+| Idoneità alla demo | Interfaccia web immediata e un flusso d'acquisto completo da mostrare (catalogo → carrello → checkout) |
+| Progetto vivo | Ultima release 18/09/2026, repository non archiviato |
+
+Alternative considerate: altre app demo multi-servizio (es. Sock Shop). Scartate perché andrebbe dimostrata
+l'equivalenza senza un vantaggio chiaro, mentre Online Boutique è la scelta indicata dal PDF.
+
+## Documentazione della challenge
+- [Architettura e mappatura dei componenti](docs/ARCHITECTURE.md)
+- [Modifiche rispetto all'upstream](docs/CHANGES.md)
+
+## Avvio rapido (locale, kind)
+```bash
+./scripts/cluster-up.sh                       # crea il cluster kind "boutique" (idempotente)
+helm upgrade --install onlineboutique helm-chart -n dev --create-namespace \
+  --set images.tag=v0.10.7 --wait --timeout 15m
+kubectl port-forward -n dev svc/frontend 8080:80   # poi apri http://localhost:8080
+```
+Prerequisiti e versioni dei tool: Docker, kind v0.33.0, kubectl v1.37.2, Helm v4.3.1.
+
+---
+
 <!-- <p align="center">
 <img src="/src/frontend/static/icons/Hipster_HeroLogoMaroon.svg" width="300" alt="Online Boutique" />
 </p> -->
