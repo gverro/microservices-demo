@@ -12,7 +12,7 @@ tranne due file di workflow CI). Regola: si modifica l'upstream solo se serve a 
 | 4 | `docs/DECISIONS.md` | Aggiunto | Scelte di progetto e alternative | §10 motivare le scelte |
 | 5 | `docs/CHANGES.md` | Aggiunto | Questo file | §4.1 modifiche documentate |
 | 6 | `README.md` | Modificato (sezione iniziale) | Dominio, motivazione della scelta, parti usate | §2.2, §8 |
-| 7 | GitHub Actions del fork | Disattivato (impostazione, non file) | I workflow upstream richiedono Google Cloud | — |
+| 7 | GitHub Actions del fork; `.github/workflows/` | Workflow upstream **rimossi** (9 file + README), Actions riattivato con un solo workflow nostro (#19) | I workflow upstream richiedono Google Cloud (GKE, credenziali GCP, runner dedicati) e sul fork potrebbero solo fallire | §4.4 |
 | 8 | `src/frontend/Dockerfile` | Modificato (1 riga) | Immagine finale `gcr.io/distroless/static` senza tag → `static:nonroot` **fissata per digest**: build riproducibile e utente non root anche con `docker run` | §4.2 build riproducibile |
 | 9 | `helm-chart/templates/*.yaml` (13 ServiceAccount) | Modificato | `automountServiceAccountToken` configurabile (`serviceAccounts.automountToken`, default `true` = upstream) | §4.6 privilegi minimi |
 | 10 | `helm-chart/templates/frontend.yaml`, `_frontend-config.tpl` | Modificato / aggiunto | Opzioni nuove, tutte disattivate di default: immagine del solo frontend (`frontend.image`), `replicas`, ConfigMap per le impostazioni non sensibili (dati definiti una volta, usati anche per l'annotation `checksum/config`), risorsa `Ingress`, regola NetworkPolicy per il namespace dell'Ingress controller, hook `preStop` (`preStopSleepSeconds`) per rolling update senza errori | §4.3 Ingress/ConfigMap, §2.3 ambienti |
@@ -24,6 +24,8 @@ tranne due file di workflow CI). Regola: si modifica l'upstream solo se serve a 
 | 16 | `deploy/secrets/{dev,prod}/redis-auth.sealed.yaml` | Aggiunti | Password di Redis cifrata (Sealed Secrets), diversa per ambiente | §4.6 |
 | 17 | `scripts/install.sh`, `scripts/seal-secrets.sh`, `scripts/backup-sealing-key.sh` | Aggiunti | Installazione completa con un comando (idempotente; ricifra le password se i file in Git non si decifrano col cluster); generazione e cifratura delle password; backup manuale della chiave di Sealed Secrets fuori da Git | §2.4, §8 script |
 | 18 | `docs/SECURITY.md` | Aggiunto | Misure applicate, verifiche e limiti residui | §4.6 |
+| 19 | `.github/workflows/ci.yaml` | Aggiunto | Pipeline: shellcheck, `helm lint`, `helm template` per ambiente → `kubeconform -strict` (SealedSecret compresi), `go vet` e `go test` del frontend, build dell'immagine, scansione Trivy (CVE critiche correggibili bloccano), push su GHCR solo da `main` senza sovrascrivere un tag. Action fissate per SHA, token in sola lettura tranne `packages: write` nel job di build. `go vet` gira con `-copylocks=false`: il codice upstream passa per valore i messaggi protobuf `Money` (72 punti), correggerlo vorrebbe dire riscrivere gli handler | §4.4 |
+| 20 | `deploy/values-common.yaml`, `scripts/install.sh` | Modificato | L'immagine del frontend è `ghcr.io/gverro/microservices-demo/frontend:<tag>`, pubblicata dalla CI; `install.sh` la costruisce e la carica in kind solo se manca in locale (installazione offline, piano B della demo) | §4.2, §4.4 |
 
 Codice applicativo (`src/`): **nessuna modifica** al codice; solo una riga del Dockerfile del frontend (#8).
 Tutte le modifiche al chart sono **opzioni disattivate di default**: chi usa il chart come l'upstream ottiene lo stesso risultato.
