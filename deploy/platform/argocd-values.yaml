@@ -1,0 +1,47 @@
+# Argo CD for the local kind cluster (chart argo-cd, version pinned in scripts/install.sh).
+# Only what GitOps needs here: application controller, repo server, API/UI server, Redis cache.
+global:
+  domain: argocd.localhost
+
+configs:
+  params:
+    # TLS ends at Traefik (plain HTTP on the local machine, like the shop). Without this the server
+    # redirects HTTP to HTTPS and the Ingress loops.
+    server.insecure: true
+  cm:
+    # Poll Git every ~2-3 minutes (chart default 120s + jitter). In the demo the UI "Refresh" is immediate.
+    timeout.reconciliation: 120s
+    exec.enabled: false          # no shell into pods from the UI
+    statusbadge.enabled: false
+
+# Not needed on a local cluster: SSO (Dex), notifications, ApplicationSet (two Applications are enough).
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  replicas: 0
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hostname: argocd.localhost
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+controller:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 768Mi}
+
+repoServer:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 512Mi}
+
+redis:
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {memory: 128Mi}

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# One command to get the whole local platform: kind cluster, Traefik, Sealed Secrets, our frontend image,
-# and Online Boutique in the dev and prod namespaces. Idempotent: safe to run many times.
+# One command to get the whole local platform: kind cluster, Traefik, Sealed Secrets, Argo CD, and the
+# Argo CD Applications that deploy Online Boutique in dev and prod from Git (GitOps). Idempotent.
+# This script installs the PLATFORM; the applications are deployed by Argo CD, never by this script.
 # Usage: ./scripts/install.sh            (everything)
 #        ./scripts/install.sh dev        (only the dev environment, platform included)
+# Env:   GITOPS_REPO=https://github.com/<you>/microservices-demo.git   (fork that Argo CD follows)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,11 +15,17 @@ readonly CLUSTER_NAME="boutique"
 # Pinned versions (one place to bump them).
 readonly TRAEFIK_CHART_VERSION="42.3.2"          # app v3.7.17
 readonly SEALED_SECRETS_CHART_VERSION="2.22.0"   # app v0.41.2
+readonly ARGOCD_CHART_VERSION="10.18.0"          # app v3.6.1 (3.6 is the first line tested with Kubernetes 1.37)
 readonly FRONTEND_IMAGE="ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.1"  # must match frontend.image in deploy/values-common.yaml
 
 # Backup of the Sealed Secrets private key, kept OUTSIDE Git. Restoring it lets a recreated cluster
 # decrypt the SealedSecrets committed in deploy/secrets/. Create it with scripts/backup-sealing-key.sh.
 readonly SEALING_KEY_BACKUP="${SEALING_KEY_BACKUP:-${HOME}/.config/kiratech-boutique/sealed-secrets-key.yaml}"
+
+# Repository that Argo CD follows. The SealedSecrets it applies must be decryptable by THIS cluster:
+# with a fresh clone (no key backup) reseal, commit to your fork and point GITOPS_REPO to it.
+readonly DEFAULT_GITOPS_REPO="https://github.com/gverro/microservices-demo.git"
+readonly GITOPS_REPO="${GITOPS_REPO:-${DEFAULT_GITOPS_REPO}}"
 
 ENVIRONMENTS=(dev prod)
 if [[ $# -gt 0 ]]; then
@@ -31,7 +39,7 @@ for tool in docker kind kubectl helm kubeseal openssl; do
   command -v "${tool}" >/dev/null 2>&1 || die "'${tool}' not found in PATH"
 done
 for env in "${ENVIRONMENTS[@]}"; do
-  [[ -f "${REPO_ROOT}/deploy/values-${env}.yaml" ]] || die "unknown environment '${env}' (no deploy/values-${env}.yaml)"
+  [[ -f "${REPO_ROOT}/deploy/argocd/boutique-${env}.yaml" ]] || die "unknown environment '${env}' (no deploy/argocd/boutique-${env}.yaml)"
 done
 grep -q "image: ${FRONTEND_IMAGE}" "${REPO_ROOT}/deploy/values-common.yaml" \
   || die "FRONTEND_IMAGE (${FRONTEND_IMAGE}) differs from frontend.image in deploy/values-common.yaml"
@@ -81,37 +89,54 @@ for env in "${ENVIRONMENTS[@]}"; do
   fi
 done
 
-# 4. Our frontend image. CI publishes it to GHCR; the node can pull it. Building and loading it here keeps
-#    the install working offline (demo plan B) and before CI has published a new tag.
-# The tag identifies the code: after changing src/frontend, bump the tag here and in deploy/values-common.yaml.
+# 4. Our frontend image, published by CI to GHCR (public). Pre-loading it into the node avoids a pull during the
+#    demo; if GHCR is unreachable (offline), build it from source with the same tag (plan B).
 if ! docker image inspect "${FRONTEND_IMAGE}" >/dev/null 2>&1; then
-  log "building ${FRONTEND_IMAGE}"
-  docker build -t "${FRONTEND_IMAGE}" "${REPO_ROOT}/src/frontend"
+  if ! docker pull "${FRONTEND_IMAGE}"; then
+    log "WARNING: cannot pull ${FRONTEND_IMAGE}, building it locally"
+    docker build -t "${FRONTEND_IMAGE}" "${REPO_ROOT}/src/frontend"
+  fi
 fi
 kind load docker-image "${FRONTEND_IMAGE}" --name "${CLUSTER_NAME}"
 
-# 5. Environments.
+# 5. Argo CD (the GitOps controller).
+log "installing Argo CD (chart ${ARGOCD_CHART_VERSION})"
+helm upgrade --install argocd argo-cd --repo https://argoproj.github.io/argo-helm --version "${ARGOCD_CHART_VERSION}" \
+  -n argocd --create-namespace -f "${REPO_ROOT}/deploy/platform/argocd-values.yaml" --wait --timeout 10m >/dev/null
+
+# 6. Environments: namespaces belong to the platform (the AppProject forbids cluster-scoped objects);
+#    everything inside them comes from Git through the Applications.
+[[ "${GITOPS_REPO}" == "${DEFAULT_GITOPS_REPO}" ]] || log "Argo CD will follow ${GITOPS_REPO}"
+apply_from_git_repo() { sed "s|${DEFAULT_GITOPS_REPO}|${GITOPS_REPO}|g" "$1" | kubectl apply -f - >/dev/null; }
+apply_from_git_repo "${REPO_ROOT}/deploy/argocd/project.yaml"
 for env in "${ENVIRONMENTS[@]}"; do
-  log "== environment ${env}"
   kubectl create namespace "${env}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl apply -f "${REPO_ROOT}/deploy/secrets/${env}/"
-  log "waiting for the controller to decrypt the Secret redis-auth"
-  for _ in $(seq 1 30); do
-    kubectl get secret redis-auth -n "${env}" >/dev/null 2>&1 && break
-    sleep 2
-  done
-  kubectl get secret redis-auth -n "${env}" >/dev/null 2>&1 \
-    || die "Secret redis-auth not created in '${env}': check 'kubectl describe sealedsecret redis-auth -n ${env}' (wrong sealing key?)"
-  helm upgrade --install onlineboutique "${REPO_ROOT}/helm-chart" -n "${env}" \
-    -f "${REPO_ROOT}/deploy/values-common.yaml" -f "${REPO_ROOT}/deploy/values-${env}.yaml" \
-    --wait --timeout 10m >/dev/null
+  apply_from_git_repo "${REPO_ROOT}/deploy/argocd/boutique-${env}.yaml"
+  app="boutique-${env}"
+  # An environment without auto-sync (prod) is synced once when it has never been synced (first install).
+  # Later promotions stay a human decision: this script never syncs it again.
+  if [[ -z "$(kubectl get application "${app}" -n argocd -o jsonpath='{.spec.syncPolicy.automated}')" \
+        && -z "$(kubectl get application "${app}" -n argocd -o jsonpath='{.status.operationState.phase}')" ]]; then
+    log "${env}: first install, requesting the initial sync of ${app}"
+    kubectl patch application "${app}" -n argocd --type merge -p '{"operation":{"initiatedBy":{"username":"install.sh"},"sync":{}}}' >/dev/null
+  fi
+  if [[ " ${resealed[*]} " == *" ${env} "* ]]; then
+    log "WARNING: ${env}: not waiting for ${app}: Git still has a SealedSecret this cluster cannot decrypt (see below)"
+    continue
+  fi
+  log "${env}: waiting for ${app} to be Synced and Healthy"
+  kubectl wait application "${app}" -n argocd --for=jsonpath='{.status.health.status}'=Healthy --timeout=10m >/dev/null \
+    || die "${app} not Healthy: kubectl get application ${app} -n argocd -o yaml"
+  sync="$(kubectl get application "${app}" -n argocd -o jsonpath='{.status.sync.status}')"
   host="$(kubectl get ingress frontend -n "${env}" -o jsonpath='{.spec.rules[0].host}')"
-  log "${env} ready: http://${host}/"
+  log "${env}: ${app} ${sync}/Healthy, http://${host}/"
 done
+log "Argo CD UI: http://argocd.localhost/ (user admin, password: scripts/argocd-password.sh)"
 
 if [[ ${#resealed[@]} -gt 0 ]]; then
   log "WARNING: new Redis passwords were sealed for: ${resealed[*]} (deploy/secrets/ modified locally)."
-  log "WARNING: run scripts/backup-sealing-key.sh, and commit deploy/secrets/ if this cluster is driven from your Git."
+  log "WARNING: Argo CD applies deploy/secrets/ from ${GITOPS_REPO}: commit and push them there, then run"
+  log "WARNING: scripts/backup-sealing-key.sh. Until then the Secret redis-auth cannot be created (cart unavailable)."
 fi
 
 # Pods may be briefly Pending while a rollout settles: retry for up to ~30s before warning.

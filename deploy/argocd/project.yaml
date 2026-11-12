@@ -1,0 +1,20 @@
+# Least privilege for GitOps: Applications of this project may only read this repository
+# and only deploy namespaced resources into dev and prod (no cluster-scoped objects).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: boutique
+  namespace: argocd
+spec:
+  description: Online Boutique environments (dev, prod)
+  sourceRepos:
+    - https://github.com/gverro/microservices-demo.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: dev
+    - server: https://kubernetes.default.svc
+      namespace: prod
+  clusterResourceWhitelist: []   # namespaces are created by scripts/install.sh (platform layer)
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

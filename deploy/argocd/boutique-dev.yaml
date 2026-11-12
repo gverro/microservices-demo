@@ -1,0 +1,32 @@
+# Online Boutique in the dev namespace, rendered by Argo CD from main:
+# the chart with the shared and dev values, plus the SealedSecret of the environment.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: boutique-dev
+  namespace: argocd
+spec:
+  project: boutique
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dev
+  sources:
+    - repoURL: https://github.com/gverro/microservices-demo.git
+      targetRevision: main
+      path: helm-chart
+      helm:
+        releaseName: onlineboutique
+        valueFiles:
+          - $repo/deploy/values-common.yaml
+          - $repo/deploy/values-dev.yaml
+    # Same repository, named "repo" for the value files above; its path is applied too (the SealedSecret).
+    - repoURL: https://github.com/gverro/microservices-demo.git
+      targetRevision: main
+      ref: repo
+      path: deploy/secrets/dev
+  syncPolicy:
+    # dev follows main on its own: new commits are applied, removed resources are deleted (prune),
+    # manual changes in the cluster are reverted (selfHeal).
+    automated:
+      prune: true
+      selfHeal: true

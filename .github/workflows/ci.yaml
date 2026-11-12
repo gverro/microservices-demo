@@ -69,10 +69,10 @@ jobs:
               -f deploy/values-common.yaml -f "deploy/values-${env}.yaml" \
               | kubeconform -strict -summary
           done
-      - name: SealedSecrets and other plain manifests
+      - name: SealedSecrets and Argo CD manifests (CRD schemas)
         run: |
           kubeconform -strict -summary -schema-location default -schema-location "${CRD_SCHEMAS}" \
-            deploy/secrets/
+            deploy/secrets/ deploy/argocd/
 
   test:
     name: test (go vet, go test)
