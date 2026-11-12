@@ -1,0 +1,8 @@
+# prod: two frontend replicas (rolling updates keep one replica serving), no synthetic traffic.
+frontend:
+  replicas: 2
+  ingress:
+    host: boutique.localhost
+
+loadGenerator:
+  create: false

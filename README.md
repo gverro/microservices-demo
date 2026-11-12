@@ -1,3 +1,105 @@
+# Online Boutique — Challenge tecnica L2 Kiratech
+
+Fork di [GoogleCloudPlatform/microservices-demo](https://github.com/GoogleCloudPlatform/microservices-demo)
+(release **v0.10.7**, licenza Apache-2.0) usato come workload della challenge. Il README originale prosegue
+più sotto, invariato.
+
+## Dominio applicativo
+E-commerce dimostrativo: catalogo prodotti, conversione di valuta, carrello, ordine con pagamento, spedizione ed
+email **simulati**. Nessun login: ogni visitatore riceve un session ID in un cookie. Un load generator simula utenti reali.
+
+## Perché Online Boutique
+| Criterio del PDF (§2.2, §7.1) | Come lo soddisfa |
+|---|---|
+| Complessità realistica | 11 microservizi (10 applicativi + load generator) in 5 linguaggi (Go, C#, Node.js, Python, Java), più Redis |
+| Pertinenza cloud-native | Progettata per Kubernetes: un Deployment per servizio e un Service per ogni servizio raggiungibile, health check gRPC, `securityContext` restrittivo |
+| Componenti multipli e protocolli diversi | HTTP verso l'esterno, gRPC tra i servizi, RESP verso Redis (unico componente stateful) |
+| Manifest o chart disponibili | Chart Helm, manifest semplici e Kustomize già mantenuti upstream: si parte da artefatti reali, non da zero |
+| Osservabilità | Log JSON nella maggior parte dei servizi e traffico continuo dal load generator: utile per metriche e troubleshooting |
+| Idoneità alla demo | Interfaccia web immediata e un flusso d'acquisto completo da mostrare (catalogo → carrello → checkout) |
+| Progetto vivo | Ultima release 18/09/2026, repository non archiviato |
+
+Alternative considerate: altre app demo multi-servizio (es. Sock Shop). Scartate perché andrebbe dimostrata
+l'equivalenza senza un vantaggio chiaro, mentre Online Boutique è la scelta indicata dal PDF.
+
+## Parti usate nella challenge
+- **Usate**: i 10 servizi applicativi, Redis e il load generator (immagini upstream `v0.10.7`); il chart Helm `helm-chart/`;
+  il codice del frontend (unico servizio che verrà ricompilato).
+- **Non usate**: `shoppingassistantservice` (richiede Gemini/AlloyDB, disattivato di default), `kubernetes-manifests/`,
+  `kustomize/`, `release/`, `istio-manifests/`, `terraform/`, `cloudbuild.yaml`, `skaffold.yaml`, workflow CI upstream.
+- **Aggiunte**: `kind/`, `scripts/`, `deploy/` (values per ambiente, Ingress controller, secret cifrati), i documenti in `docs/` elencati sotto.
+
+## Documentazione della challenge
+- [Architettura e mappatura dei componenti](docs/ARCHITECTURE.md)
+- [Decisioni di progetto](docs/DECISIONS.md)
+- [Modifiche rispetto all'upstream](docs/CHANGES.md)
+- [Sicurezza e limiti residui](docs/SECURITY.md)
+
+## Avvio rapido (locale, kind)
+Prerequisiti: Docker, kind v0.33.0, kubectl v1.37.x, Helm v4.3.x, **kubeseal v0.41.2**, openssl.
+Porte 80 e 443 libere su `localhost`. Installazione di kubeseal con verifica del checksum ufficiale:
+```bash
+curl -sLO https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.41.2/kubeseal-0.41.2-linux-amd64.tar.gz
+echo "666b5db6788ad1dedb56e2d97064e1cc3779aa77bbd6f4b56b62beeb1941ed79  kubeseal-0.41.2-linux-amd64.tar.gz" | sha256sum -c -
+tar -xzf kubeseal-0.41.2-linux-amd64.tar.gz kubeseal && install -m 755 kubeseal ~/.local/bin/kubeseal
+```
+
+```bash
+./scripts/install.sh          # cluster + Traefik + Sealed Secrets + build del frontend + dev e prod (idempotente)
+./scripts/backup-sealing-key.sh   # una volta sola, dopo la prima installazione: salva la chiave di Sealed Secrets fuori da Git
+```
+Poi: **http://dev.boutique.localhost/** (dev) e **http://boutique.localhost/** (prod). I nomi `*.localhost`
+puntano a `127.0.0.1` (verificato con `curl` da WSL; i browser moderni li risolvono allo stesso modo).
+
+**Secret su un clone nuovo.** I file `deploy/secrets/<env>/*.sealed.yaml` sono cifrati con la chiave del cluster
+dell'autore. Se il tuo cluster non la ha (nessun backup in `~/.config/kiratech-boutique/`), `install.sh` se ne accorge
+(`kubeseal --validate`), genera **nuove** password casuali cifrate per il tuo cluster e lo segnala: l'app funziona, i file
+risultano modificati in Git. Committali nel tuo fork se vuoi guidare il cluster da Git (GitOps), poi lancia
+`./scripts/backup-sealing-key.sh`. Dettagli in [SECURITY](docs/SECURITY.md).
+
+| | dev | prod |
+|---|---|---|
+| Namespace / host | `dev` / `dev.boutique.localhost` | `prod` / `boutique.localhost` |
+| Frontend | 1 replica | 2 repliche |
+| Load generator | sì | no |
+| Comune | stessa immagine `frontend:v0.10.7-kt.1`, NetworkPolicy, seccomp, Redis con password, RBAC minimo | |
+
+Struttura: `helm-chart/` (chart upstream con opzioni aggiunte), `deploy/values-common.yaml` + `values-<env>.yaml`,
+`deploy/secrets/<env>/` (SealedSecret), `deploy/platform/` (Traefik). Dettagli in [CHANGES](docs/CHANGES.md) e [SECURITY](docs/SECURITY.md).
+
+### Build ed esecuzione locale del frontend (unico servizio ricompilato)
+```bash
+docker build -t frontend:v0.10.7-kt.1 src/frontend      # base distroless:nonroot fissata per digest
+docker run --rm -d --name fe-local -p 127.0.0.1:8081:8080 \
+  -e PRODUCT_CATALOG_SERVICE_ADDR=x:1 -e CURRENCY_SERVICE_ADDR=x:1 -e CART_SERVICE_ADDR=x:1 \
+  -e RECOMMENDATION_SERVICE_ADDR=x:1 -e CHECKOUT_SERVICE_ADDR=x:1 -e SHIPPING_SERVICE_ADDR=x:1 \
+  -e AD_SERVICE_ADDR=x:1 -e SHOPPING_ASSISTANT_SERVICE_ADDR=x:1 frontend:v0.10.7-kt.1
+curl -s localhost:8081/_healthz        # "ok": il processo parte e risponde anche senza backend
+docker stop fe-local                    # --rm: il container si rimuove da solo
+```
+Il frontend si ferma all'avvio se manca uno degli indirizzi `*_SERVICE_ADDR` (`mustMapEnv` in `src/frontend/main.go`).
+
+Variabili d'ambiente del frontend nel cluster:
+
+| Variabile | Da dove arriva | Esempio |
+|---|---|---|
+| `PORT` | env nel Deployment | `8080` |
+| `*_SERVICE_ADDR` (8 backend) | env nel Deployment, costruite dal chart | `cartservice:7070` |
+| `ENV_PLATFORM`, `CYMBAL_BRANDING`, `ENABLE_SINGLE_SHARED_SESSION` | **ConfigMap** `frontend-config` (`envFrom`) | `local`, `false`, `false` |
+| `ENABLE_ASSISTANT` | env nel Deployment | `false` |
+
+Per cartservice `REDIS_ADDR` vale `redis-cart:6379,password=$(REDIS_PASSWORD)`, con `REDIS_PASSWORD` letta dal **Secret** `redis-auth`.
+Dopo una modifica al codice del frontend si cambia il tag (in `scripts/install.sh` e `deploy/values-common.yaml`): l'immagine
+si ricostruisce solo se il tag non esiste già.
+
+Verifica rapida:
+```bash
+kubectl get pods -n dev; kubectl get pods -n prod                 # tutti Running e READY
+curl -s -o /dev/null -w '%{http_code}\n' http://dev.boutique.localhost/   # 200
+```
+
+---
+
 <!-- <p align="center">
 <img src="/src/frontend/static/icons/Hipster_HeroLogoMaroon.svg" width="300" alt="Online Boutique" />
 </p> -->

@@ -1,0 +1,49 @@
+# kind cluster for the Kiratech challenge (local environment).
+# Single node on purpose: enough for dev + prod namespaces within the WSL RAM budget.
+# The node image is pinned by digest (from the kind v0.33.0 release notes) for reproducibility.
+# Ports 80/443 of the node are published on the host (WSL localhost, forwarded to Windows):
+# the Traefik ingress controller listens there via hostPort. Port mappings can only be set at creation time.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: boutique
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+    labels:
+      ingress-ready: "true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+# Longer leader-election leases for controller-manager and scheduler (defaults: 15s / 10s / 2s).
+# Why: on WSL2, heavy image pulls slow etcd's disk writes; the API then answers in >5s, the components fail to renew
+# their lease and exit on purpose ("leaderelection lost"). With a single control-plane node there is no second
+# candidate, so longer leases only add tolerance, not risk. JSON6902 "add" appends to kind's own extraArgs list
+# (kubeadm v1beta4 uses a list of {name, value}; a merge patch would replace kind's defaults).
+kubeadmConfigPatchesJSON6902:
+  - group: kubeadm.k8s.io
+    version: v1beta4
+    kind: ClusterConfiguration
+    patch: |
+      - op: add
+        path: /controllerManager/extraArgs/-
+        value: {name: leader-elect-lease-duration, value: "60s"}
+      - op: add
+        path: /controllerManager/extraArgs/-
+        value: {name: leader-elect-renew-deadline, value: "40s"}
+      - op: add
+        path: /controllerManager/extraArgs/-
+        value: {name: leader-elect-retry-period, value: "5s"}
+      # kind sets no scheduler args today (verified in /kind/kubeadm.conf: "extraArgs: null"), so "add" creates the list.
+      # If kind ever adds scheduler args (e.g. via featureGates), switch to "/scheduler/extraArgs/-" entries.
+      - op: add
+        path: /scheduler/extraArgs
+        value:
+          - {name: leader-elect-lease-duration, value: "60s"}
+          - {name: leader-elect-renew-deadline, value: "40s"}
+          - {name: leader-elect-retry-period, value: "5s"}

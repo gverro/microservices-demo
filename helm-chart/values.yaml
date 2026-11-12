@@ -28,6 +28,14 @@ serviceAccounts:
   annotations: {}
   # Annotations to add only for the cartservice app. This allows to follow the least privilege principle where only cartservice needs to connect to external database for example via Workload Identity.
   annotationsOnlyForCartservice: false
+  # Kiratech: mount the Kubernetes API token in the pods. No Online Boutique service uses the API,
+  # so environments should set false (least privilege). Default true = upstream behaviour.
+  automountToken: true
+
+# Kiratech: read-only Role + RoleBinding for L2 operators (no Secrets, no exec, no writes).
+opsReadOnlyRbac:
+  create: false
+  group: boutique-operators
 
 networkPolicies:
   # Specifies if the NetworkPolicies are created or not. If true, one fine granular NetworkPolicy per app is created.
@@ -122,6 +130,23 @@ frontend:
   # One of: local, gcp, aws, azure, onprem, alibaba. When not set, defaults to "local" unless running in GKE, otherwise auto-sets to gcp.
   platform: local
   singleSharedSession: false
+  # Kiratech: optional full image reference for the frontend only (e.g. our own build). Empty = images.repository/tag.
+  image: ""
+  # Kiratech: number of replicas (empty = Kubernetes default, 1).
+  replicas: null
+  # Kiratech: seconds to wait in a preStop hook before shutdown (empty = none, upstream behaviour).
+  preStopSleepSeconds: null
+  # Kiratech: put platform/branding/session settings in a ConfigMap instead of inline env.
+  configMap:
+    create: false
+  # Kiratech: expose the frontend through an Ingress controller.
+  ingress:
+    create: false
+    className: ""
+    host: ""
+    annotations: {}
+    # Namespace of the Ingress controller, allowed by the frontend NetworkPolicy.
+    controllerNamespace: traefik
   virtualService:
     create: false
     hosts:
@@ -206,6 +231,11 @@ cartDatabase:
     name: redis-cart
     # Uses the public redis image from Docker Hub, otherwise will use the images.repository.
     publicRepository: true
+    # Kiratech: protect Redis with a password read from an existing Secret (never from values).
+    auth:
+      enabled: false
+      existingSecret: redis-auth
+      secretKey: password
   externalRedisTlsOrigination:
     enable: false
     name: exernal-redis-tls-origination

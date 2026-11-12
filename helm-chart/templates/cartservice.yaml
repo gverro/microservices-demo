@@ -16,6 +16,7 @@
 {{- if .Values.serviceAccounts.create }}
 apiVersion: v1
 kind: ServiceAccount
+automountServiceAccountToken: {{ .Values.serviceAccounts.automountToken }}
 metadata:
   name: {{ .Values.cartService.name }}
   namespace: {{.Release.Namespace}}
@@ -79,10 +80,21 @@ spec:
         env:
         {{- if eq .Values.cartDatabase.type "spanner" }}
         - name: SPANNER_CONNECTION_STRING
+          value: {{ .Values.cartDatabase.connectionString | quote }}
+        {{- else if .Values.cartDatabase.inClusterRedis.auth.enabled }}
+        # Kiratech: the password comes from a Secret; REDIS_ADDR is a StackExchange.Redis connection
+        # string, so "host:port,password=..." authenticates without code changes. $(VAR) is expanded by the kubelet.
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.cartDatabase.inClusterRedis.auth.existingSecret }}
+              key: {{ .Values.cartDatabase.inClusterRedis.auth.secretKey }}
+        - name: REDIS_ADDR
+          value: "{{ .Values.cartDatabase.connectionString }},password=$(REDIS_PASSWORD)"
         {{- else }}
         - name: REDIS_ADDR
-        {{- end }}
           value: {{ .Values.cartDatabase.connectionString | quote }}
+        {{- end }}
         resources:
           {{- toYaml .Values.cartService.resources | nindent 10 }}
         readinessProbe:
@@ -201,6 +213,7 @@ spec:
 {{- if .Values.serviceAccounts.create }}
 apiVersion: v1
 kind: ServiceAccount
+automountServiceAccountToken: {{ .Values.serviceAccounts.automountToken }}
 metadata:
   name: {{ .Values.cartDatabase.inClusterRedis.name }}
   namespace: {{.Release.Namespace}}
@@ -255,6 +268,16 @@ spec:
         image: redis:alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb
         {{- else }}
         image: {{ .Values.images.repository }}/redis:alpine
+        {{- end }}
+        {{- if .Values.cartDatabase.inClusterRedis.auth.enabled }}
+        # Kiratech: require a password. Args starting with "-" are passed to redis-server by the image entrypoint.
+        args: ["--requirepass", "$(REDIS_PASSWORD)"]
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.cartDatabase.inClusterRedis.auth.existingSecret }}
+              key: {{ .Values.cartDatabase.inClusterRedis.auth.secretKey }}
         {{- end }}
         ports:
         - containerPort: 6379

@@ -1,0 +1,37 @@
+# Settings shared by every environment (dev, prod). Environment files only override what differs.
+# Usage: helm upgrade --install onlineboutique helm-chart -n <env> -f deploy/values-common.yaml -f deploy/values-<env>.yaml
+
+images:
+  tag: v0.10.7            # pinned upstream release for all services we do not build
+
+serviceAccounts:
+  automountToken: false   # no service calls the Kubernetes API: do not mount the token
+
+opsReadOnlyRbac:
+  create: true
+  group: boutique-operators
+
+networkPolicies:
+  create: true            # default deny + one allow policy per service
+
+seccompProfile:
+  enable: true
+  type: RuntimeDefault
+
+frontend:
+  image: frontend:v0.10.7-kt.1   # our build, loaded into kind; same image in every environment
+  externalService: false         # no LoadBalancer on kind: traffic enters through the Ingress
+  preStopSleepSeconds: 5         # let Traefik drop the pod from its endpoints before it stops
+  configMap:
+    create: true
+  ingress:
+    create: true
+    className: traefik
+    controllerNamespace: traefik
+
+cartDatabase:
+  inClusterRedis:
+    auth:
+      enabled: true
+      existingSecret: redis-auth   # created by Sealed Secrets from deploy/secrets/<env>/redis-auth.sealed.yaml
+      secretKey: password

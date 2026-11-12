@@ -1,0 +1,35 @@
+{{- if .Values.opsReadOnlyRbac.create }}
+# Kiratech: least-privilege access for L2 operators in this namespace.
+# The application ServiceAccounts get NO permissions at all (they never call the Kubernetes API, and their
+# token is not mounted when serviceAccounts.automountToken=false). This Role is for humans/tools that
+# troubleshoot: they can read workloads, logs and events, but cannot read Secrets, exec into pods or change anything.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ops-readonly
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "services", "endpoints", "configmaps", "events", "serviceaccounts"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses", "networkpolicies"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ops-readonly
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ops-readonly
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: {{ .Values.opsReadOnlyRbac.group | quote }}
+{{- end }}
