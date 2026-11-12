@@ -27,21 +27,40 @@ l'equivalenza senza un vantaggio chiaro, mentre Online Boutique è la scelta ind
   il codice del frontend (unico servizio che verrà ricompilato).
 - **Non usate**: `shoppingassistantservice` (richiede Gemini/AlloyDB, disattivato di default), `kubernetes-manifests/`,
   `kustomize/`, `release/`, `istio-manifests/`, `terraform/`, `cloudbuild.yaml`, `skaffold.yaml`, workflow CI upstream.
-- **Aggiunte**: `kind/`, `scripts/`, i documenti in `docs/` elencati sotto.
+- **Aggiunte**: `kind/`, `scripts/`, `deploy/` (values per ambiente, Ingress controller, secret cifrati), i documenti in `docs/` elencati sotto.
 
 ## Documentazione della challenge
 - [Architettura e mappatura dei componenti](docs/ARCHITECTURE.md)
 - [Decisioni di progetto](docs/DECISIONS.md)
 - [Modifiche rispetto all'upstream](docs/CHANGES.md)
+- [Sicurezza e limiti residui](docs/SECURITY.md)
 
 ## Avvio rapido (locale, kind)
+Prerequisiti: Docker, kind v0.33.0, kubectl v1.37.x, Helm v4.3.x, kubeseal v0.41.2 (solo per cifrare nuovi secret).
+Porte 80 e 443 libere su `localhost`.
+
 ```bash
-./scripts/cluster-up.sh                       # crea il cluster kind "boutique" (idempotente)
-helm upgrade --install onlineboutique helm-chart -n dev --create-namespace \
-  --set images.tag=v0.10.7 --wait --timeout 15m
-kubectl port-forward -n dev svc/frontend 8080:80   # poi apri http://localhost:8080
+./scripts/install.sh          # cluster + Traefik + Sealed Secrets + build del frontend + dev e prod (idempotente)
+./scripts/backup-sealing-key.sh   # una volta sola, dopo la prima installazione: salva la chiave di Sealed Secrets fuori da Git
 ```
-Prerequisiti e versioni dei tool: Docker, kind v0.33.0, kubectl v1.37.2, Helm v4.3.1.
+Poi nel browser: **http://dev.boutique.localhost/** (dev) e **http://boutique.localhost/** (prod).
+I nomi `*.localhost` puntano a `127.0.0.1` nei browser moderni; con `curl` basta lo stesso URL.
+
+| | dev | prod |
+|---|---|---|
+| Namespace / host | `dev` / `dev.boutique.localhost` | `prod` / `boutique.localhost` |
+| Frontend | 1 replica | 2 repliche |
+| Load generator | sì | no |
+| Comune | stessa immagine `frontend:v0.10.7-kt.1`, NetworkPolicy, seccomp, Redis con password, RBAC minimo | |
+
+Struttura: `helm-chart/` (chart upstream con opzioni aggiunte), `deploy/values-common.yaml` + `values-<env>.yaml`,
+`deploy/secrets/<env>/` (SealedSecret), `deploy/platform/` (Traefik). Dettagli in [CHANGES](docs/CHANGES.md) e [SECURITY](docs/SECURITY.md).
+
+Verifica rapida:
+```bash
+kubectl get pods -n dev; kubectl get pods -n prod                 # tutti Running e READY
+curl -s -o /dev/null -w '%{http_code}\n' http://dev.boutique.localhost/   # 200
+```
 
 ---
 
