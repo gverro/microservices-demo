@@ -36,6 +36,10 @@ if grep -qx "${CLUSTER_NAME}" <<<"${clusters}"; then
     log "cluster '${CLUSTER_NAME}' exists but node is stopped, starting ${NODE_CONTAINER}"
     docker start "${NODE_CONTAINER}" >/dev/null
   fi
+  # Port mappings are fixed at creation: an old cluster without them cannot serve the Ingress.
+  if ! docker port "${NODE_CONTAINER}" 80/tcp >/dev/null 2>&1; then
+    die "cluster '${CLUSTER_NAME}' was created without the port 80/443 mappings of ${KIND_CONFIG}; recreate it with: kind delete cluster --name ${CLUSTER_NAME} && $0"
+  fi
 else
   log "creating cluster '${CLUSTER_NAME}' from ${KIND_CONFIG}"
   kind create cluster --config "${KIND_CONFIG}" --wait 120s
