@@ -4,11 +4,15 @@ Fork di [GoogleCloudPlatform/microservices-demo](https://github.com/GoogleCloudP
 (release **v0.10.7**, licenza Apache-2.0) usato come workload della challenge. Il README originale prosegue
 più sotto, invariato.
 
+## Dominio applicativo
+E-commerce dimostrativo: catalogo prodotti, conversione di valuta, carrello, ordine con pagamento, spedizione ed
+email **simulati**. Nessun login: ogni visitatore riceve un session ID in un cookie. Un load generator simula utenti reali.
+
 ## Perché Online Boutique
 | Criterio del PDF (§2.2, §7.1) | Come lo soddisfa |
 |---|---|
-| Complessità realistica | 11 microservizi in 5 linguaggi (Go, C#, Node.js, Python, Java) + Redis + load generator |
-| Pertinenza cloud-native | Progettata per Kubernetes: un Deployment e un Service per servizio, health check gRPC, `securityContext` restrittivo |
+| Complessità realistica | 11 microservizi (10 applicativi + load generator) in 5 linguaggi (Go, C#, Node.js, Python, Java), più Redis |
+| Pertinenza cloud-native | Progettata per Kubernetes: un Deployment per servizio e un Service per ogni servizio raggiungibile, health check gRPC, `securityContext` restrittivo |
 | Componenti multipli e protocolli diversi | HTTP verso l'esterno, gRPC tra i servizi, RESP verso Redis (unico componente stateful) |
 | Manifest o chart disponibili | Chart Helm, manifest semplici e Kustomize già mantenuti upstream: si parte da artefatti reali, non da zero |
 | Osservabilità | Log JSON nella maggior parte dei servizi e traffico continuo dal load generator: utile per metriche e troubleshooting |
@@ -18,8 +22,16 @@ più sotto, invariato.
 Alternative considerate: altre app demo multi-servizio (es. Sock Shop). Scartate perché andrebbe dimostrata
 l'equivalenza senza un vantaggio chiaro, mentre Online Boutique è la scelta indicata dal PDF.
 
+## Parti usate nella challenge
+- **Usate**: i 10 servizi applicativi, Redis e il load generator (immagini upstream `v0.10.7`); il chart Helm `helm-chart/`;
+  il codice del frontend (unico servizio che verrà ricompilato).
+- **Non usate**: `shoppingassistantservice` (richiede Gemini/AlloyDB, disattivato di default), `kubernetes-manifests/`,
+  `kustomize/`, `release/`, `istio-manifests/`, `terraform/`, `cloudbuild.yaml`, `skaffold.yaml`, workflow CI upstream.
+- **Aggiunte**: `kind/`, `scripts/`, i documenti in `docs/` elencati sotto.
+
 ## Documentazione della challenge
 - [Architettura e mappatura dei componenti](docs/ARCHITECTURE.md)
+- [Decisioni di progetto](docs/DECISIONS.md)
 - [Modifiche rispetto all'upstream](docs/CHANGES.md)
 
 ## Avvio rapido (locale, kind)
