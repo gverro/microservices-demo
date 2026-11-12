@@ -1,0 +1,149 @@
+# CI for this fork: lint, manifest validation, tests and the frontend image.
+# The pipeline never touches the cluster: deployment is pull-based (Argo CD reads main).
+#
+# Supply chain: every action is pinned to a full commit SHA (a tag can be moved, a SHA cannot;
+# see the 2026 trivy-action tag compromise, CVE-2026-33634). Tool versions are pinned in env.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege by default; only the job that publishes the image gets packages: write.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HELM_VERSION: v4.3.1
+  KUBECONFORM_VERSION: v0.8.0
+  KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  # kubeconform-linux-amd64.tar.gz
+  # JSON schemas for CRDs (SealedSecret, Argo CD Application), pinned to a commit of the catalog.
+  CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/89c736bdde38b5fecd0f8436ec5f3aa3679a3b86/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+  TRIVY_VERSION: v0.76.1
+
+jobs:
+  lint:
+    name: lint (shellcheck, helm lint)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: shellcheck
+        run: |
+          shellcheck --version | head -2
+          shellcheck scripts/*.sh
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: helm lint (dev and prod values)
+        run: |
+          for env in dev prod; do
+            helm lint helm-chart -f deploy/values-common.yaml -f "deploy/values-${env}.yaml"
+          done
+
+  validate:
+    name: validate manifests (helm template | kubeconform)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: install kubeconform (checksum verified)
+        run: |
+          curl -fsSLo kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum -c -
+          tar -xzf kubeconform.tar.gz kubeconform
+          sudo install -m 0755 kubeconform /usr/local/bin/kubeconform
+      - name: rendered chart, per environment
+        run: |
+          for env in dev prod; do
+            echo "== ${env}"
+            helm template onlineboutique helm-chart -n "${env}" \
+              -f deploy/values-common.yaml -f "deploy/values-${env}.yaml" \
+              | kubeconform -strict -summary
+          done
+      - name: SealedSecrets and other plain manifests
+        run: |
+          kubeconform -strict -summary -schema-location default -schema-location "${CRD_SCHEMAS}" \
+            deploy/secrets/
+
+  test:
+    name: test (go vet, go test)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: src/frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: src/frontend/go.mod
+          cache-dependency-path: src/frontend/go.sum
+      # copylocks is disabled: upstream passes protobuf messages (genproto.Money) by value in 72 places.
+      # Fixing it means rewriting upstream handlers; recorded as a known limit in docs/CHANGES.md.
+      - run: go vet -copylocks=false ./...
+      - run: go test -race ./...
+
+  build:
+    name: build, scan and publish the frontend image
+    needs: [lint, validate, test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write   # used only on push to main
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: image reference from the values (single source of truth)
+        id: ref
+        run: |
+          image="$(yq '.frontend.image' deploy/values-common.yaml)"
+          case "${image}" in
+            ghcr.io/*:*) ;;
+            *) echo "frontend.image must be a ghcr.io reference with a tag, got '${image}'"; exit 1 ;;
+          esac
+          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+          echo "frontend image: ${image}"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: build (loaded locally for the scan)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: src/frontend
+          load: true
+          push: false
+          tags: ${{ steps.ref.outputs.image }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: scan (fail on fixable CRITICAL vulnerabilities)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: ${{ steps.ref.outputs.image }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: tags are immutable (do not overwrite a published tag)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          if docker manifest inspect "${{ steps.ref.outputs.image }}" >/dev/null 2>&1; then
+            echo "already published: ${{ steps.ref.outputs.image }} (bump the tag in deploy/values-common.yaml to publish new code)"
+            echo "publish=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "publish=true" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: publish to GHCR
+        if: steps.exists.outputs.publish == 'true'
+        run: docker push "${{ steps.ref.outputs.image }}"

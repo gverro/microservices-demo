@@ -13,7 +13,7 @@ readonly CLUSTER_NAME="boutique"
 # Pinned versions (one place to bump them).
 readonly TRAEFIK_CHART_VERSION="42.3.2"          # app v3.7.17
 readonly SEALED_SECRETS_CHART_VERSION="2.22.0"   # app v0.41.2
-readonly FRONTEND_IMAGE="frontend:v0.10.7-kt.1"  # must match frontend.image in deploy/values-common.yaml
+readonly FRONTEND_IMAGE="ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.1"  # must match frontend.image in deploy/values-common.yaml
 
 # Backup of the Sealed Secrets private key, kept OUTSIDE Git. Restoring it lets a recreated cluster
 # decrypt the SealedSecrets committed in deploy/secrets/. Create it with scripts/backup-sealing-key.sh.
@@ -81,7 +81,8 @@ for env in "${ENVIRONMENTS[@]}"; do
   fi
 done
 
-# 4. Our frontend image: build only if missing, then load it into the kind node (kind skips it if already there).
+# 4. Our frontend image. CI publishes it to GHCR; the node can pull it. Building and loading it here keeps
+#    the install working offline (demo plan B) and before CI has published a new tag.
 # The tag identifies the code: after changing src/frontend, bump the tag here and in deploy/values-common.yaml.
 if ! docker image inspect "${FRONTEND_IMAGE}" >/dev/null 2>&1; then
   log "building ${FRONTEND_IMAGE}"

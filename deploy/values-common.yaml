@@ -19,7 +19,7 @@ seccompProfile:
   type: RuntimeDefault
 
 frontend:
-  image: frontend:v0.10.7-kt.1   # our build, loaded into kind; same image in every environment
+  image: ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.1   # built and published by CI (ci.yaml); same image in every environment
   externalService: false         # no LoadBalancer on kind: traffic enters through the Ingress
   preStopSleepSeconds: 5         # let Traefik drop the pod from its endpoints before it stops
   configMap:
