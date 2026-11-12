@@ -27,7 +27,7 @@ fi
 log() { printf '[install] %s\n' "$*"; }
 die() { printf '[install] ERROR: %s\n' "$*" >&2; exit 1; }
 
-for tool in docker kind kubectl helm; do
+for tool in docker kind kubectl helm kubeseal openssl; do
   command -v "${tool}" >/dev/null 2>&1 || die "'${tool}' not found in PATH"
 done
 for env in "${ENVIRONMENTS[@]}"; do
@@ -55,16 +55,34 @@ fi
 log "installing Sealed Secrets ${SEALED_SECRETS_CHART_VERSION}"
 helm upgrade --install sealed-secrets sealed-secrets --repo https://bitnami.github.io/sealed-secrets \
   --version "${SEALED_SECRETS_CHART_VERSION}" -n kube-system --set-string fullnameOverride=sealed-secrets-controller \
+  --set-string keyrenewperiod=0 \
   --wait --timeout 5m >/dev/null
-if [[ -z "${active_keys}" && ! -f "${SEALING_KEY_BACKUP}" ]]; then
-  # Fresh cluster and no backup (e.g. a new clone): the files in Git were sealed with a key we do not have.
-  log "WARNING: no sealing key backup: generating NEW Redis passwords sealed for this cluster."
-  log "WARNING: deploy/secrets/ is now modified locally; commit it if Git must match the cluster (GitOps),"
-  log "WARNING: and run scripts/backup-sealing-key.sh to keep the new key. See docs/SECURITY.md."
-  "${REPO_ROOT}/scripts/seal-secrets.sh" "${ENVIRONMENTS[@]}"
-fi
+
+# Make sure the controller answers before asking it anything (otherwise a network error would look like a bad key).
+kubeseal_args=(--controller-name sealed-secrets-controller --controller-namespace kube-system)
+for _ in $(seq 1 30); do
+  kubeseal "${kubeseal_args[@]}" --fetch-cert >/dev/null 2>&1 && break
+  sleep 2
+done
+kubeseal "${kubeseal_args[@]}" --fetch-cert >/dev/null || die "Sealed Secrets controller not reachable by kubeseal"
+
+# Per environment: can THIS cluster decrypt the SealedSecret committed in Git? If not (new clone without our key
+# backup, or a key that changed), seal a NEW random password for this cluster. Git then differs from the committed
+# files: commit them (your fork) if Git must drive the cluster (GitOps), and back up the key. See docs/SECURITY.md.
+resealed=()
+for env in "${ENVIRONMENTS[@]}"; do
+  sealed_file="${REPO_ROOT}/deploy/secrets/${env}/redis-auth.sealed.yaml"
+  if [[ -s "${sealed_file}" ]] && kubeseal "${kubeseal_args[@]}" --validate <"${sealed_file}" >/dev/null 2>&1; then
+    log "${env}: committed SealedSecret decrypts with this cluster's key"
+  else
+    log "WARNING: ${env}: committed SealedSecret cannot be decrypted here, sealing a NEW password for this cluster"
+    "${REPO_ROOT}/scripts/seal-secrets.sh" "${env}"
+    resealed+=("${env}")
+  fi
+done
 
 # 4. Our frontend image: build only if missing, then load it into the kind node (kind skips it if already there).
+# The tag identifies the code: after changing src/frontend, bump the tag here and in deploy/values-common.yaml.
 if ! docker image inspect "${FRONTEND_IMAGE}" >/dev/null 2>&1; then
   log "building ${FRONTEND_IMAGE}"
   docker build -t "${FRONTEND_IMAGE}" "${REPO_ROOT}/src/frontend"
@@ -90,7 +108,17 @@ for env in "${ENVIRONMENTS[@]}"; do
   log "${env} ready: http://${host}/"
 done
 
-not_running="$(kubectl get pods -A --field-selector=status.phase!=Running --no-headers 2>/dev/null)"
+if [[ ${#resealed[@]} -gt 0 ]]; then
+  log "WARNING: new Redis passwords were sealed for: ${resealed[*]} (deploy/secrets/ modified locally)."
+  log "WARNING: run scripts/backup-sealing-key.sh, and commit deploy/secrets/ if this cluster is driven from your Git."
+fi
+
+# Pods may be briefly Pending while a rollout settles: retry for up to ~30s before warning.
+for _ in $(seq 1 10); do
+  not_running="$(kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers 2>/dev/null)"
+  [[ -z "${not_running}" ]] && break
+  sleep 3
+done
 if [[ -n "${not_running}" ]]; then
   printf '%s\n' "${not_running}"
   log "WARNING: some pods are not Running (see above)"

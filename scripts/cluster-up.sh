@@ -20,6 +20,8 @@ for tool in docker kind kubectl; do
   command -v "${tool}" >/dev/null 2>&1 || die "'${tool}' not found in PATH"
 done
 docker info >/dev/null 2>&1 || die "Docker daemon not reachable"
+# Remember the user's context before kind changes it.
+previous_context="$(kubectl config current-context 2>/dev/null || echo none)"
 
 kind_version="$(kind version)"
 if [[ "${kind_version}" != *"${EXPECTED_KIND_VERSION}"* ]]; then
@@ -46,9 +48,10 @@ else
 fi
 
 # Re-export the kubeconfig: it may be missing or stale after a restart.
+# Note: this (like `kind create cluster`) switches kubectl to the cluster context; the previous one is logged.
 kind export kubeconfig --name "${CLUSTER_NAME}" >/dev/null 2>&1
 kubectl config use-context "${CONTEXT}" >/dev/null
-log "current context: $(kubectl config current-context)"
+log "current context: $(kubectl config current-context) (previous: ${previous_context})"
 
 log "waiting for API server, node and system pods to be Ready"
 for _ in $(seq 1 60); do
