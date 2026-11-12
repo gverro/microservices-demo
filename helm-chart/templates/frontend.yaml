@@ -50,7 +50,7 @@ spec:
         sidecar.istio.io/rewriteAppHTTPProbers: "true"
         {{- if .Values.frontend.configMap.create }}
         # Kiratech: roll the pods when the ConfigMap changes (envFrom is read only at start).
-        checksum/config: {{ printf "%s|%s|%s" .Values.frontend.platform (toString .Values.frontend.cymbalBranding) (toString .Values.frontend.singleSharedSession) | sha256sum }}
+        checksum/config: {{ include "onlineboutique.frontendConfig" . | sha256sum }}
         {{- end }}
     spec:
       {{- if .Values.serviceAccounts.create }}
@@ -86,6 +86,14 @@ spec:
           {{- end }}
           ports:
           - containerPort: 8080
+          {{- with .Values.frontend.preStopSleepSeconds }}
+          # Kiratech: on shutdown keep serving for a few seconds, so the Ingress controller removes this pod from its
+          # endpoints before the process exits (avoids 502/timeouts during rolling updates). Run by the kubelet: no binary needed.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: {{ . }}
+          {{- end }}
           readinessProbe:
             initialDelaySeconds: 10
             httpGet:
@@ -167,9 +175,7 @@ metadata:
   labels:
     app: {{ .Values.frontend.name }}
 data:
-  ENV_PLATFORM: {{ .Values.frontend.platform | quote }}
-  CYMBAL_BRANDING: {{ .Values.frontend.cymbalBranding | quote }}
-  ENABLE_SINGLE_SHARED_SESSION: {{ .Values.frontend.singleSharedSession | quote }}
+  {{- include "onlineboutique.frontendConfig" . | nindent 2 }}
 {{- end }}
 {{- if .Values.frontend.ingress.create }}
 ---

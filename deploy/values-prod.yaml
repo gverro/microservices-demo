@@ -1,4 +1,4 @@
-# prod: two frontend replicas (rolling updates without downtime), no synthetic traffic.
+# prod: two frontend replicas (rolling updates keep one replica serving), no synthetic traffic.
 frontend:
   replicas: 2
   ingress:

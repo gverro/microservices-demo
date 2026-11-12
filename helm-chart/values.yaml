@@ -134,6 +134,8 @@ frontend:
   image: ""
   # Kiratech: number of replicas (empty = Kubernetes default, 1).
   replicas: null
+  # Kiratech: seconds to wait in a preStop hook before shutdown (empty = none, upstream behaviour).
+  preStopSleepSeconds: null
   # Kiratech: put platform/branding/session settings in a ConfigMap instead of inline env.
   configMap:
     create: false
