@@ -1,0 +1,7 @@
+# dev: one replica each, synthetic traffic from the load generator.
+frontend:
+  ingress:
+    host: dev.boutique.localhost
+
+loadGenerator:
+  create: true

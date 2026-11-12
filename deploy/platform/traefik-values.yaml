@@ -1,0 +1,30 @@
+# Traefik ingress controller for the local kind cluster (chart traefik/traefik, version pinned in scripts/install.sh).
+# Traffic path: Windows/WSL localhost:80 -> kind extraPortMappings -> node port 80 -> hostPort -> Traefik pod.
+# No LoadBalancer on kind, so the Service is ClusterIP and the pod binds the node ports directly.
+deployment:
+  replicas: 1
+nodeSelector:
+  ingress-ready: "true"
+service:
+  spec:
+    type: ClusterIP
+ports:
+  web:
+    hostPort: 80
+  websecure:
+    hostPort: 443
+ingressClass:
+  enabled: true
+  isDefaultClass: true
+providers:
+  kubernetesIngress:
+    enabled: true
+  kubernetesCRD:
+    enabled: false   # we only use standard Ingress resources (YAGNI)
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 300m
+    memory: 128Mi
