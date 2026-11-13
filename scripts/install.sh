@@ -124,12 +124,14 @@ for env in "${ENVIRONMENTS[@]}"; do
     log "WARNING: ${env}: not waiting for ${app}: Git still has a SealedSecret this cluster cannot decrypt (see below)"
     continue
   fi
-  log "${env}: waiting for ${app} to be Synced and Healthy"
+  # Synced first: an Application with no resources yet already reports Healthy.
+  log "${env}: waiting for ${app} to be Synced, then Healthy"
+  kubectl wait application "${app}" -n argocd --for=jsonpath='{.status.sync.status}'=Synced --timeout=10m >/dev/null \
+    || die "${app} not Synced: kubectl get application ${app} -n argocd -o jsonpath='{.status.conditions}'"
   kubectl wait application "${app}" -n argocd --for=jsonpath='{.status.health.status}'=Healthy --timeout=10m >/dev/null \
-    || die "${app} not Healthy: kubectl get application ${app} -n argocd -o yaml"
-  sync="$(kubectl get application "${app}" -n argocd -o jsonpath='{.status.sync.status}')"
-  host="$(kubectl get ingress frontend -n "${env}" -o jsonpath='{.spec.rules[0].host}')"
-  log "${env}: ${app} ${sync}/Healthy, http://${host}/"
+    || die "${app} not Healthy: kubectl get application ${app} -n argocd -o jsonpath='{.status.resources}'"
+  host="$(kubectl get ingress frontend -n "${env}" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)"
+  log "${env}: ${app} Synced/Healthy, http://${host:-<no ingress>}/"
 done
 log "Argo CD UI: http://argocd.localhost/ (user admin, password: scripts/argocd-password.sh)"
 
