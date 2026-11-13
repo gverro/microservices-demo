@@ -3,6 +3,13 @@
 # No LoadBalancer on kind, so the Service is ClusterIP and the pod binds the node ports directly.
 deployment:
   replicas: 1
+# hostPort 80/443 on a single node: a new pod cannot start while the old one holds the ports, so the default
+# surge (+1 then -1) hangs in Pending. Stop the old pod first: a few seconds without ingress during a Traefik upgrade.
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+    maxSurge: 0
 nodeSelector:
   ingress-ready: "true"
 service:
@@ -19,6 +26,13 @@ ingressClass:
 providers:
   kubernetesIngress:
     enabled: true
+    # Write an address into Ingress status.loadBalancer. Copying it from the Service (publishedService) leaves it
+    # empty here (ClusterIP has no load balancer status), and Argo CD then reports every Ingress as Progressing
+    # forever. 127.0.0.1 is the truth on this setup: Ingresses are reached on localhost via kind extraPortMappings.
+    publishedService:
+      enabled: false
+    ingressEndpoint:
+      ip: 127.0.0.1
   kubernetesCRD:
     enabled: false   # we only use standard Ingress resources (YAGNI)
 resources:

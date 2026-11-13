@@ -1,0 +1,28 @@
+# Online Boutique in the prod namespace, rendered by Argo CD from main:
+# the chart with the shared and prod values, plus the SealedSecret of the environment.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: boutique-prod
+  namespace: argocd
+spec:
+  project: boutique
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prod
+  sources:
+    - repoURL: https://github.com/gverro/microservices-demo.git
+      targetRevision: main
+      path: helm-chart
+      helm:
+        releaseName: onlineboutique
+        valueFiles:
+          - $repo/deploy/values-common.yaml
+          - $repo/deploy/values-prod.yaml
+    # Same repository, named "repo" for the value files above; its path is applied too (the SealedSecret).
+    - repoURL: https://github.com/gverro/microservices-demo.git
+      targetRevision: main
+      ref: repo
+      path: deploy/secrets/prod
+  # No syncPolicy.automated: prod is promoted by hand. Argo CD shows OutOfSync and waits for a sync
+  # (UI button or CLI). Same commit, same image as dev: the sync is the human gate.
