@@ -21,6 +21,7 @@ seccompProfile:
 frontend:
   image: ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.1   # built and published by CI (ci.yaml); same image in every environment
   externalService: false         # no LoadBalancer on kind: traffic enters through the Ingress
+  platform: onprem               # banner "On-Premises": kind on our own machine (GitOps demo commit)
   preStopSleepSeconds: 5         # let Traefik drop the pod from its endpoints before it stops
   configMap:
     create: true
