@@ -58,7 +58,7 @@ flowchart LR
 - **CD GitOps (modello pull)**: la CI non tocca mai il cluster. Argo CD, installato nel cluster, segue `main` con due Application
   ([`deploy/argocd/`](deploy/argocd/)): `boutique-dev` si sincronizza da sola (`prune`, `selfHeal`: le modifiche manuali vengono annullate),
   `boutique-prod` si promuove a mano (pulsante **SYNC** o CLI) e intanto mostra `OutOfSync` con il diff. Stesso commit, stessa immagine.
-- **Rilasciare nuovo codice del frontend**: modifica in `src/frontend/` → nuovo tag in `deploy/values-common.yaml` (e in `scripts/install.sh`)
+- **Rilasciare nuovo codice del frontend**: modifica in `src/frontend/` → nuovo tag in `deploy/values-common.yaml` (unico punto: lo leggono sia la CI sia `install.sh`)
   → PR verde → merge: la CI pubblica l'immagine, Argo CD aggiorna dev; prod con la sync manuale.
 - **UI di Argo CD**: http://argocd.localhost/, utente `admin`, password stampata da `./scripts/argocd-password.sh` (resta solo nel cluster).
 
@@ -80,9 +80,9 @@ puntano a `127.0.0.1` (verificato con `curl` da WSL; i browser moderni li risolv
 
 **Secret su un clone nuovo.** I file `deploy/secrets/<env>/*.sealed.yaml` sono cifrati con la chiave del cluster
 dell'autore. Se il tuo cluster non la ha (nessun backup in `~/.config/kiratech-boutique/`), `install.sh` se ne accorge
-(`kubeseal --validate`), genera **nuove** password casuali cifrate per il tuo cluster e lo segnala: l'app funziona, i file
-risultano modificati in Git. Poiché Argo CD applica i secret **da Git**, vanno committati nel tuo fork e lo script va rilanciato
-puntando al fork: `GITOPS_REPO=https://github.com/<tu>/microservices-demo.git ./scripts/install.sh`; poi `./scripts/backup-sealing-key.sh`.
+(`kubeseal --validate`), genera **nuove** password casuali cifrate per il tuo cluster e lo segnala: i file risultano modificati in Git.
+Poiché Argo CD applica i secret **da Git**, finché non li committi nel tuo fork il Secret `redis-auth` non esiste e
+**il carrello non funziona**. Committali nel fork e rilancia lo script puntando al fork: `GITOPS_REPO=https://github.com/<tu>/microservices-demo.git ./scripts/install.sh`; poi `./scripts/backup-sealing-key.sh`.
 Dettagli in [SECURITY](docs/SECURITY.md).
 
 | | dev | prod |
@@ -114,11 +114,11 @@ Variabili d'ambiente del frontend nel cluster:
 |---|---|---|
 | `PORT` | env nel Deployment | `8080` |
 | `*_SERVICE_ADDR` (8 backend) | env nel Deployment, costruite dal chart | `cartservice:7070` |
-| `ENV_PLATFORM`, `CYMBAL_BRANDING`, `ENABLE_SINGLE_SHARED_SESSION` | **ConfigMap** `frontend-config` (`envFrom`) | `local`, `false`, `false` |
+| `ENV_PLATFORM`, `CYMBAL_BRANDING`, `ENABLE_SINGLE_SHARED_SESSION` | **ConfigMap** `frontend-config` (`envFrom`) | `onprem`, `false`, `false` |
 | `ENABLE_ASSISTANT` | env nel Deployment | `false` |
 
 Per cartservice `REDIS_ADDR` vale `redis-cart:6379,password=$(REDIS_PASSWORD)`, con `REDIS_PASSWORD` letta dal **Secret** `redis-auth`.
-Dopo una modifica al codice del frontend si cambia il tag (in `scripts/install.sh` e `deploy/values-common.yaml`): la CI pubblica
+Dopo una modifica al codice del frontend si cambia il tag in `deploy/values-common.yaml`: la CI pubblica
 l'immagine solo se il tag non esiste già (vedi [CI/CD e GitOps](#cicd-e-gitops)).
 
 Verifica rapida:

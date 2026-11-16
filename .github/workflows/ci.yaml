@@ -131,19 +131,28 @@ jobs:
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+      # Values reach the scripts through env, never as ${{ }} inside run: (no expression injection).
       - name: tags are immutable (do not overwrite a published tag)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: exists
         env:
           GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          IMAGE: ${{ steps.ref.outputs.image }}
         run: |
-          echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          if docker manifest inspect "${{ steps.ref.outputs.image }}" >/dev/null 2>&1; then
-            echo "already published: ${{ steps.ref.outputs.image }} (bump the tag in deploy/values-common.yaml to publish new code)"
+          echo "${GH_TOKEN}" | docker login ghcr.io -u "${ACTOR}" --password-stdin
+          if out="$(docker manifest inspect "${IMAGE}" 2>&1)"; then
+            echo "::notice::already published: ${IMAGE} (bump the tag in deploy/values-common.yaml to publish new code)"
             echo "publish=false" >> "${GITHUB_OUTPUT}"
-          else
+          elif grep -qiE 'manifest unknown|not found' <<<"${out}"; then
             echo "publish=true" >> "${GITHUB_OUTPUT}"
+          else
+            # Network, auth or rate-limit error: do not guess, a wrong guess would overwrite a published tag.
+            echo "::error::cannot tell whether ${IMAGE} exists: ${out}"
+            exit 1
           fi
       - name: publish to GHCR
         if: steps.exists.outputs.publish == 'true'
-        run: docker push "${{ steps.ref.outputs.image }}"
+        env:
+          IMAGE: ${{ steps.ref.outputs.image }}
+        run: docker push "${IMAGE}"

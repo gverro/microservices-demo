@@ -16,7 +16,6 @@ readonly CLUSTER_NAME="boutique"
 readonly TRAEFIK_CHART_VERSION="42.3.2"          # app v3.7.17
 readonly SEALED_SECRETS_CHART_VERSION="2.22.0"   # app v0.41.2
 readonly ARGOCD_CHART_VERSION="10.18.0"          # app v3.6.1 (3.6 is the first line tested with Kubernetes 1.37)
-readonly FRONTEND_IMAGE="ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.1"  # must match frontend.image in deploy/values-common.yaml
 
 # Backup of the Sealed Secrets private key, kept OUTSIDE Git. Restoring it lets a recreated cluster
 # decrypt the SealedSecrets committed in deploy/secrets/. Create it with scripts/backup-sealing-key.sh.
@@ -41,8 +40,11 @@ done
 for env in "${ENVIRONMENTS[@]}"; do
   [[ -f "${REPO_ROOT}/deploy/argocd/boutique-${env}.yaml" ]] || die "unknown environment '${env}' (no deploy/argocd/boutique-${env}.yaml)"
 done
-grep -q "image: ${FRONTEND_IMAGE}" "${REPO_ROOT}/deploy/values-common.yaml" \
-  || die "FRONTEND_IMAGE (${FRONTEND_IMAGE}) differs from frontend.image in deploy/values-common.yaml"
+# The frontend image has one source of truth: frontend.image in deploy/values-common.yaml (also read by CI).
+FRONTEND_IMAGE="$(awk '/^frontend:/ {in_fe=1; next} /^[^[:space:]#]/ {in_fe=0} in_fe && $1 == "image:" {print $2; exit}' \
+  "${REPO_ROOT}/deploy/values-common.yaml")"
+readonly FRONTEND_IMAGE
+[[ "${FRONTEND_IMAGE}" == ghcr.io/*:* ]] || die "cannot read frontend.image from deploy/values-common.yaml (got '${FRONTEND_IMAGE}')"
 
 # 1. Cluster (creates, restarts or leaves it as is).
 "${REPO_ROOT}/scripts/cluster-up.sh"
@@ -114,24 +116,34 @@ for env in "${ENVIRONMENTS[@]}"; do
   apply_from_git_repo "${REPO_ROOT}/deploy/argocd/boutique-${env}.yaml"
   app="boutique-${env}"
   # An environment without auto-sync (prod) is synced once when it has never been synced (first install).
-  # Later promotions stay a human decision: this script never syncs it again.
-  if [[ -z "$(kubectl get application "${app}" -n argocd -o jsonpath='{.spec.syncPolicy.automated}')" \
+  # Later promotions stay a human decision: this script never syncs it again, and does not wait for Synced.
+  manual_sync=false
+  [[ -z "$(kubectl get application "${app}" -n argocd -o jsonpath='{.spec.syncPolicy.automated}')" ]] && manual_sync=true
+  if [[ "${manual_sync}" == true \
         && -z "$(kubectl get application "${app}" -n argocd -o jsonpath='{.status.operationState.phase}')" ]]; then
     log "${env}: first install, requesting the initial sync of ${app}"
     kubectl patch application "${app}" -n argocd --type merge -p '{"operation":{"initiatedBy":{"username":"install.sh"},"sync":{}}}' >/dev/null
+    manual_sync=false   # this time we do wait for the sync we just requested
   fi
   if [[ " ${resealed[*]} " == *" ${env} "* ]]; then
     log "WARNING: ${env}: not waiting for ${app}: Git still has a SealedSecret this cluster cannot decrypt (see below)"
     continue
   fi
-  # Synced first: an Application with no resources yet already reports Healthy.
-  log "${env}: waiting for ${app} to be Synced, then Healthy"
-  kubectl wait application "${app}" -n argocd --for=jsonpath='{.status.sync.status}'=Synced --timeout=10m >/dev/null \
-    || die "${app} not Synced: kubectl get application ${app} -n argocd -o jsonpath='{.status.conditions}'"
+  if [[ "${manual_sync}" == true ]]; then
+    # Already installed and promoted by hand: Git may be ahead (a promotion pending). Report it, do not wait for it.
+    sync_status="$(kubectl get application "${app}" -n argocd -o jsonpath='{.status.sync.status}')"
+    [[ "${sync_status}" == Synced ]] \
+      || log "WARNING: ${env}: ${app} is ${sync_status:-not compared yet}: a promotion is pending (sync it from the Argo CD UI)"
+  else
+    # Synced first: an Application with no resources yet already reports Healthy.
+    log "${env}: waiting for ${app} to be Synced, then Healthy"
+    kubectl wait application "${app}" -n argocd --for=jsonpath='{.status.sync.status}'=Synced --timeout=10m >/dev/null \
+      || die "${app} not Synced: kubectl get application ${app} -n argocd -o jsonpath='{.status.conditions}'"
+  fi
   kubectl wait application "${app}" -n argocd --for=jsonpath='{.status.health.status}'=Healthy --timeout=10m >/dev/null \
     || die "${app} not Healthy: kubectl get application ${app} -n argocd -o jsonpath='{.status.resources}'"
   host="$(kubectl get ingress frontend -n "${env}" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)"
-  log "${env}: ${app} Synced/Healthy, http://${host:-<no ingress>}/"
+  log "${env}: ${app} $(kubectl get application "${app}" -n argocd -o jsonpath='{.status.sync.status}')/Healthy, http://${host:-<no ingress>}/"
 done
 log "Argo CD UI: http://argocd.localhost/ (user admin, password: scripts/argocd-password.sh)"
 
