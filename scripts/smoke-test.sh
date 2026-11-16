@@ -34,18 +34,25 @@ read -r sync health < <(kubectl get application "${app}" -n argocd \
 if [[ "${health}" == "Healthy" ]]; then pass "argocd   ${app} health=${health}"; else fail "argocd   ${app} health=${health}"; fi
 if [[ "${sync}" == "Synced" ]]; then pass "argocd   ${app} sync=${sync}"; else warn "argocd   ${app} sync=${sync} (cluster differs from Git: pending promotion, paused sync or drift)"; fi
 
-# 2. Workloads: desired replicas = ready replicas
-while read -r name desired ready; do
+# 2. Workloads: desired replicas = ready replicas, and the rollout is complete
+#    (during a stuck rolling update the old pods are still ready, so "ready" alone would hide it:
+#    the total number of pods, old plus new, stays above the desired replicas until the rollout ends)
+while read -r name desired ready total; do
   [[ -n "${name}" ]] || continue
-  ready="${ready:-0}"
-  if [[ "${desired}" == "${ready}" ]]; then pass "deploy   ${name} ${ready}/${desired} ready"
-  else fail "deploy   ${name} ${ready}/${desired} ready (kubectl get pods -n ${env} -l app=${name}; kubectl describe pod ...)"; fi
-done < <(kubectl get deploy -n "${env}" -o jsonpath='{range .items[*]}{.metadata.name} {.spec.replicas} {.status.readyReplicas}{"\n"}{end}')
+  ready="${ready:-0}"; total="${total:-0}"
+  if [[ "${desired}" != "${ready}" ]]; then
+    fail "deploy   ${name} ${ready}/${desired} ready (kubectl get pods -n ${env} -l app=${name}; kubectl describe pod ...)"
+  elif [[ "${desired}" != "${total}" ]]; then
+    fail "deploy   ${name} rollout not complete: ${total} pods for ${desired} replicas (kubectl rollout status deploy/${name} -n ${env})"
+  else
+    pass "deploy   ${name} ${ready}/${desired} ready"
+  fi
+done < <(kubectl get deploy -n "${env}" -o jsonpath='{range .items[*]}{.metadata.name} {.spec.replicas} {.status.readyReplicas} {.status.replicas}{"\n"}{end}')
 
 # 3. Services: at least one ready endpoint each
 for svc in $(kubectl get svc -n "${env}" -o jsonpath='{.items[*].metadata.name}'); do
   count="$(kubectl get endpointslices -n "${env}" -l "kubernetes.io/service-name=${svc}" \
-    -o jsonpath='{range .items[*].endpoints[?(@.conditions.ready==true)]}{.addresses[0]}{"\n"}{end}' | grep -c . || true)"
+    -o jsonpath='{range .items[*].endpoints[?(@.conditions.ready==true)]}{.addresses[0]}{"\n"}{end}' 2>/dev/null | grep -c . || true)"
   if [[ "${count}" -gt 0 ]]; then pass "service  ${svc} ${count} ready endpoint(s)"
   else fail "service  ${svc} has no ready endpoints (selector or readiness: kubectl get endpointslices -n ${env} -l kubernetes.io/service-name=${svc})"; fi
 done
