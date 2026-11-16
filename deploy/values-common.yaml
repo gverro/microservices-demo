@@ -24,10 +24,14 @@ probes:
     enabled: true          # startupProbe + 3 s timeouts: no liveness kills on a cold start (helm-chart/values.yaml)
 
 frontend:
-  image: ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.1   # built and published by CI (ci.yaml); same image in every environment
+  image: ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.2   # built and published by CI (ci.yaml); same image in every environment
   externalService: false         # no LoadBalancer on kind: traffic enters through the Ingress
   platform: onprem               # banner "On-Premises": kind on our own machine (GitOps demo commit)
   preStopSleepSeconds: 5         # let Traefik drop the pod from its endpoints before it stops
+  metrics:
+    enabled: true                # /metrics on port 9090, scraped by Prometheus (deploy/platform/monitoring-values.yaml)
+    serviceMonitor:
+      create: true
   configMap:
     create: true
   ingress:

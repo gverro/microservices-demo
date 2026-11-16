@@ -373,6 +373,7 @@ func (fe *frontendServer) placeOrderHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	log.WithField("order", order.GetOrder().GetOrderId()).Info("order placed")
+	ordersPlaced.Inc() // Kiratech: business metric (metrics.go)
 
 	order.GetOrder().GetItems()
 	recommendations, _ := fe.getRecommendations(r.Context(), sessionID(r), nil)

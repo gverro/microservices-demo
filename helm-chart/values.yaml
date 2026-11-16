@@ -155,6 +155,16 @@ frontend:
   # Kiratech: put platform/branding/session settings in a ConfigMap instead of inline env.
   configMap:
     create: false
+  # Kiratech: Prometheus metrics on a separate port (needs a frontend image with src/frontend/metrics.go).
+  metrics:
+    enabled: false
+    port: 9090
+    # Namespace of Prometheus, the only client allowed on the metrics port by the NetworkPolicy.
+    scraperNamespace: monitoring
+    # ServiceMonitor for the Prometheus Operator (CRD monitoring.coreos.com/v1 must exist in the cluster).
+    serviceMonitor:
+      create: false
+      interval: 30s
   # Kiratech: expose the frontend through an Ingress controller.
   ingress:
     create: false
