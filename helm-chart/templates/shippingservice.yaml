@@ -79,11 +79,24 @@ spec:
         - name: DISABLE_PROFILER
           value: "1"
         {{- end }}
+        {{- if $.Values.probes.tuning.enabled }}
+        # Kiratech: liveness and readiness start only after this succeeds once (cold start of the whole cluster).
+        startupProbe:
+          {{- toYaml $.Values.probes.tuning.startup | nindent 10 }}
+          grpc:
+            port: 50051
+        {{- end }}
         readinessProbe:
+          {{- if $.Values.probes.tuning.enabled }}
+          {{- toYaml $.Values.probes.tuning.readiness | nindent 10 }}
+          {{- end }}
           periodSeconds: 5
           grpc:
             port: 50051
         livenessProbe:
+          {{- if $.Values.probes.tuning.enabled }}
+          {{- toYaml $.Values.probes.tuning.liveness | nindent 10 }}
+          {{- end }}
           grpc:
             port: 50051
         resources:

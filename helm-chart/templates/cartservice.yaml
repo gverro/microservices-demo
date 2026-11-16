@@ -97,11 +97,24 @@ spec:
         {{- end }}
         resources:
           {{- toYaml .Values.cartService.resources | nindent 10 }}
+        {{- if $.Values.probes.tuning.enabled }}
+        # Kiratech: liveness and readiness start only after this succeeds once (cold start of the whole cluster).
+        startupProbe:
+          {{- toYaml $.Values.probes.tuning.startup | nindent 10 }}
+          grpc:
+            port: 7070
+        {{- end }}
         readinessProbe:
+          {{- if $.Values.probes.tuning.enabled }}
+          {{- toYaml $.Values.probes.tuning.readiness | nindent 10 }}
+          {{- end }}
           initialDelaySeconds: 15
           grpc:
             port: 7070
         livenessProbe:
+          {{- if $.Values.probes.tuning.enabled }}
+          {{- toYaml $.Values.probes.tuning.liveness | nindent 10 }}
+          {{- end }}
           initialDelaySeconds: 15
           periodSeconds: 10
           grpc:
@@ -281,11 +294,24 @@ spec:
         {{- end }}
         ports:
         - containerPort: 6379
+        {{- if $.Values.probes.tuning.enabled }}
+        # Kiratech: liveness and readiness start only after this succeeds once (cold start of the whole cluster).
+        startupProbe:
+          {{- toYaml $.Values.probes.tuning.startup | nindent 10 }}
+          tcpSocket:
+            port: 6379
+        {{- end }}
         readinessProbe:
+          {{- if $.Values.probes.tuning.enabled }}
+          {{- toYaml $.Values.probes.tuning.readiness | nindent 10 }}
+          {{- end }}
           periodSeconds: 5
           tcpSocket:
             port: 6379
         livenessProbe:
+          {{- if $.Values.probes.tuning.enabled }}
+          {{- toYaml $.Values.probes.tuning.liveness | nindent 10 }}
+          {{- end }}
           periodSeconds: 5
           tcpSocket:
             port: 6379

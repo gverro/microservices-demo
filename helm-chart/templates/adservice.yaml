@@ -78,12 +78,25 @@ spec:
           value: "9555"
         resources:
           {{- toYaml .Values.adService.resources | nindent 10 }}
+        {{- if $.Values.probes.tuning.enabled }}
+        # Kiratech: liveness and readiness start only after this succeeds once (cold start of the whole cluster).
+        startupProbe:
+          {{- toYaml $.Values.probes.tuning.startup | nindent 10 }}
+          grpc:
+            port: 9555
+        {{- end }}
         readinessProbe:
+          {{- if $.Values.probes.tuning.enabled }}
+          {{- toYaml $.Values.probes.tuning.readiness | nindent 10 }}
+          {{- end }}
           initialDelaySeconds: 20
           periodSeconds: 15
           grpc:
             port: 9555
         livenessProbe:
+          {{- if $.Values.probes.tuning.enabled }}
+          {{- toYaml $.Values.probes.tuning.liveness | nindent 10 }}
+          {{- end }}
           initialDelaySeconds: 20
           periodSeconds: 15
           grpc:
