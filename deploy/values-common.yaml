@@ -19,6 +19,10 @@ seccompProfile:
   enable: true
   type: RuntimeDefault
 
+probes:
+  tuning:
+    enabled: true          # startupProbe + 3 s timeouts: no liveness kills on a cold start (helm-chart/values.yaml)
+
 frontend:
   image: ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.1   # built and published by CI (ci.yaml); same image in every environment
   externalService: false         # no LoadBalancer on kind: traffic enters through the Ingress

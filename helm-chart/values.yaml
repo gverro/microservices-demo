@@ -67,6 +67,22 @@ seccompProfile:
 securityContext:
   enable: true
 
+# Kiratech: probe tuning for slow or crowded nodes. Disabled = upstream probes, unchanged.
+# With 24 app pods starting together (e.g. after a reboot), 1 s probe timeouts made the liveness
+# probe kill services that were only slow to start (see docs/DECISIONS.md).
+probes:
+  tuning:
+    enabled: false
+    startup:                 # liveness/readiness wait until this probe succeeds once
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 36   # up to 180 s to start
+    liveness:
+      timeoutSeconds: 3
+      failureThreshold: 5    # restart only after ~25 s of failures (period 5 s), not 15 s
+    readiness:
+      timeoutSeconds: 3
+
 adService:
   create: true
   name: adservice

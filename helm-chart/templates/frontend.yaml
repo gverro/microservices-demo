@@ -94,7 +94,21 @@ spec:
               sleep:
                 seconds: {{ . }}
           {{- end }}
+          {{- if $.Values.probes.tuning.enabled }}
+          # Kiratech: liveness and readiness start only after this succeeds once (cold start of the whole cluster).
+          startupProbe:
+            {{- toYaml $.Values.probes.tuning.startup | nindent 12 }}
+            httpGet:
+              path: "/_healthz"
+              port: 8080
+              httpHeaders:
+              - name: "Cookie"
+                value: "shop_session-id=x-startup-probe"
+          {{- end }}
           readinessProbe:
+            {{- if $.Values.probes.tuning.enabled }}
+            {{- toYaml $.Values.probes.tuning.readiness | nindent 12 }}
+            {{- end }}
             initialDelaySeconds: 10
             httpGet:
               path: "/_healthz"
@@ -103,6 +117,9 @@ spec:
               - name: "Cookie"
                 value: "shop_session-id=x-readiness-probe"
           livenessProbe:
+            {{- if $.Values.probes.tuning.enabled }}
+            {{- toYaml $.Values.probes.tuning.liveness | nindent 12 }}
+            {{- end }}
             initialDelaySeconds: 10
             httpGet:
               path: "/_healthz"
