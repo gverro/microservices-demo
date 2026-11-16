@@ -2,6 +2,13 @@
 frontend:
   ingress:
     host: dev.boutique.localhost
+  # DELIBERATE BAD RELEASE (phase 5, rollback exercise R-17): "4Mi" instead of "64Mi".
+  # Valid for helm lint and kubeconform, but the container cannot even start. To be undone with git revert.
+  resources:
+    requests:
+      memory: 4Mi
+    limits:
+      memory: 4Mi
 
 loadGenerator:
   create: true
