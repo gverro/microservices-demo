@@ -31,12 +31,20 @@ prometheus:
       requests: {cpu: 100m, memory: 400Mi}
       limits: {memory: 1Gi}
 
+# Cold start of the whole node (PC reboot): with 1 s timeouts and 3 failures the liveness probe killed the operator
+# and kube-state-metrics while they were only slow to start (same issue as the app, D-29). Restart only after ~60 s.
 prometheusOperator:
+  livenessProbe:
+    timeoutSeconds: 3
+    failureThreshold: 6
   resources:
     requests: {cpu: 20m, memory: 64Mi}
     limits: {memory: 256Mi}
 
 kube-state-metrics:
+  livenessProbe:
+    timeoutSeconds: 3
+    failureThreshold: 6
   resources:
     requests: {cpu: 10m, memory: 32Mi}
     limits: {memory: 128Mi}

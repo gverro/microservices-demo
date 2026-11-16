@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One command to get the whole local platform: kind cluster, Traefik, Sealed Secrets, Argo CD, and the
+# One command to get the whole local platform: kind cluster, Traefik, Sealed Secrets, monitoring (Prometheus,
+# Grafana and the dashboards of deploy/platform/dashboards/), Argo CD, and the
 # Argo CD Applications that deploy Online Boutique in dev and prod from Git (GitOps). Idempotent.
 # This script installs the PLATFORM; the applications are deployed by Argo CD, never by this script.
 # Usage: ./scripts/install.sh            (everything)
@@ -93,9 +94,12 @@ for env in "${ENVIRONMENTS[@]}"; do
 done
 
 # 4. Our frontend image, published by CI to GHCR (public). Pre-loading it into the node avoids a pull during the
-#    demo; if GHCR is unreachable (offline), build it from source with the same tag (plan B).
-if ! docker image inspect "${FRONTEND_IMAGE}" >/dev/null 2>&1; then
-  if ! docker pull "${FRONTEND_IMAGE}"; then
+#    demo. GHCR is the source of truth: always pull first, so a local image with the same tag (e.g. a test build)
+#    never replaces the published, scanned one. Offline: use the local image if there is one, else build it (plan B).
+if ! docker pull --quiet "${FRONTEND_IMAGE}" >/dev/null; then
+  if docker image inspect "${FRONTEND_IMAGE}" >/dev/null 2>&1; then
+    log "WARNING: cannot pull ${FRONTEND_IMAGE}, using the local image with that tag"
+  else
     log "WARNING: cannot pull ${FRONTEND_IMAGE}, building it locally"
     docker build -t "${FRONTEND_IMAGE}" "${REPO_ROOT}/src/frontend"
   fi
@@ -163,6 +167,7 @@ for env in "${ENVIRONMENTS[@]}"; do
     || die "${app} not Synced: kubectl get application ${app} -n argocd -o jsonpath='{.status.conditions}'"
   kubectl wait application "${app}" -n argocd --for=jsonpath='{.status.health.status}'=Healthy --timeout=10m >/dev/null \
     || die "${app} not Healthy: kubectl get application ${app} -n argocd -o jsonpath='{.status.resources}'"
+  host="$(kubectl get ingress frontend -n "${env}" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)"   # exists only now
   log "${env}: ${app} Synced/Healthy, http://${host:-<no ingress>}/"
 done
 log "Argo CD UI: http://argocd.localhost/ (user admin, password: scripts/argocd-password.sh)"

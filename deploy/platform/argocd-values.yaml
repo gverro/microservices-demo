@@ -23,6 +23,11 @@ applicationSet:
   replicas: 0
 
 server:
+  # Cold start of the whole node: the default liveness (1 s timeout, 3 failures) restarted argocd-server while it was
+  # still starting (D-29). Restart only after ~60 s of failures.
+  livenessProbe:
+    timeoutSeconds: 3
+    failureThreshold: 6
   ingress:
     enabled: true
     ingressClassName: traefik

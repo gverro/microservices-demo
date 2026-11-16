@@ -94,7 +94,7 @@
       "id": 2,
       "type": "stat",
       "title": "Errori 5xx",
-      "description": "Quota di risposte 5xx sul totale",
+      "description": "Quota di risposte 5xx sul totale; \"nessun traffico\" se il frontend non riceve richieste (es. prod senza loadgenerator)",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -108,7 +108,8 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "decimals": 2
+          "decimals": 2,
+          "noValue": "nessun traffico"
         },
         "overrides": []
       },
@@ -128,7 +129,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(frontend_http_requests_total{namespace=\"$namespace\", route!=\"/_healthz\", code=~\"5..\"}[5m])) / sum(rate(frontend_http_requests_total{namespace=\"$namespace\", route!=\"/_healthz\"}[5m]))"
+          "expr": "(sum(rate(frontend_http_requests_total{namespace=\"$namespace\", route!=\"/_healthz\", code=~\"5..\"}[5m])) or vector(0)) / (sum(rate(frontend_http_requests_total{namespace=\"$namespace\", route!=\"/_healthz\"}[5m])) > 0)"
         }
       ]
     },

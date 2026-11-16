@@ -72,10 +72,12 @@ tar -xzf kubeseal-0.41.2-linux-amd64.tar.gz kubeseal && install -m 755 kubeseal 
 ```
 
 ```bash
-./scripts/install.sh          # cluster + Traefik + Sealed Secrets + immagine del frontend + Argo CD, che poi installa dev e prod (idempotente)
+./scripts/install.sh          # cluster + Traefik + Sealed Secrets + immagine del frontend + monitoring + Argo CD, che poi installa dev e prod (idempotente)
 ./scripts/backup-sealing-key.sh   # una volta sola, dopo la prima installazione: salva la chiave di Sealed Secrets fuori da Git
 ```
-Poi: **http://dev.boutique.localhost/** (dev), **http://boutique.localhost/** (prod) e **http://argocd.localhost/** (Argo CD). I nomi `*.localhost`
+Poi: **http://dev.boutique.localhost/** (dev), **http://boutique.localhost/** (prod), **http://argocd.localhost/** (Argo CD, password: `./scripts/argocd-password.sh`)
+e **http://grafana.localhost/** (Grafana, utente `admin`, password: `./scripts/grafana-password.sh`; dashboard "Online Boutique - Frontend").
+Prometheus non ha Ingress: `kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-prometheus 9090:9090` e poi http://localhost:9090. I nomi `*.localhost`
 puntano a `127.0.0.1` (verificato con `curl` da WSL; i browser moderni li risolvono allo stesso modo).
 
 **Secret su un clone nuovo.** I file `deploy/secrets/<env>/*.sealed.yaml` sono cifrati con la chiave del cluster
@@ -91,18 +93,18 @@ Dettagli in [SECURITY](docs/SECURITY.md).
 | Frontend | 1 replica | 2 repliche |
 | Load generator | sì | no |
 | Sincronizzazione Argo CD | automatica (`prune`, `selfHeal`) | manuale (promozione) |
-| Comune | stessa immagine `ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.1`, NetworkPolicy, seccomp, Redis con password, RBAC minimo | |
+| Comune | stessa immagine `ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.2`, NetworkPolicy, seccomp, Redis con password, RBAC minimo, startupProbe, metriche su `:9090` raccolte da Prometheus | |
 
 Struttura: `helm-chart/` (chart upstream con opzioni aggiunte), `deploy/values-common.yaml` + `values-<env>.yaml`,
-`deploy/secrets/<env>/` (SealedSecret), `deploy/platform/` (values di Traefik e Argo CD), `deploy/argocd/` (AppProject e Application). Dettagli in [CHANGES](docs/CHANGES.md) e [SECURITY](docs/SECURITY.md).
+`deploy/secrets/<env>/` (SealedSecret), `deploy/platform/` (values di Traefik, Argo CD e kube-prometheus-stack; `dashboards/` = dashboard Grafana come codice), `deploy/argocd/` (AppProject e Application). Dettagli in [CHANGES](docs/CHANGES.md) e [SECURITY](docs/SECURITY.md).
 
 ### Build ed esecuzione locale del frontend (unico servizio ricompilato)
 ```bash
-docker build -t frontend:v0.10.7-kt.1 src/frontend      # base distroless:nonroot fissata per digest
+docker build -t frontend:local src/frontend      # base distroless:nonroot fissata per digest; tag diverso da quelli pubblicati dalla CI
 docker run --rm -d --name fe-local -p 127.0.0.1:8081:8080 \
   -e PRODUCT_CATALOG_SERVICE_ADDR=x:1 -e CURRENCY_SERVICE_ADDR=x:1 -e CART_SERVICE_ADDR=x:1 \
   -e RECOMMENDATION_SERVICE_ADDR=x:1 -e CHECKOUT_SERVICE_ADDR=x:1 -e SHIPPING_SERVICE_ADDR=x:1 \
-  -e AD_SERVICE_ADDR=x:1 -e SHOPPING_ASSISTANT_SERVICE_ADDR=x:1 frontend:v0.10.7-kt.1
+  -e AD_SERVICE_ADDR=x:1 -e SHOPPING_ASSISTANT_SERVICE_ADDR=x:1 -e METRICS_PORT=9090 -p 127.0.0.1:9091:9090 frontend:local
 curl -s localhost:8081/_healthz        # "ok": il processo parte e risponde anche senza backend
 docker stop fe-local                    # --rm: il container si rimuove da solo
 ```
