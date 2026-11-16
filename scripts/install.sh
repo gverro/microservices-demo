@@ -108,6 +108,12 @@ log "installing kube-prometheus-stack ${MONITORING_CHART_VERSION}"
 helm upgrade --install monitoring kube-prometheus-stack --repo https://prometheus-community.github.io/helm-charts \
   --version "${MONITORING_CHART_VERSION}" -n monitoring --create-namespace \
   -f "${REPO_ROOT}/deploy/platform/monitoring-values.yaml" --wait --timeout 10m >/dev/null
+# Dashboards as code: every JSON in deploy/platform/dashboards/ becomes a ConfigMap that the Grafana sidecar loads.
+for dashboard in "${REPO_ROOT}"/deploy/platform/dashboards/*.json; do
+  name="dashboard-$(basename "${dashboard}" .json)"
+  kubectl create configmap "${name}" -n monitoring --from-file="${dashboard}" --dry-run=client -o yaml \
+    | kubectl label --local -f - grafana_dashboard=1 -o yaml | kubectl apply -f - >/dev/null
+done
 
 # 6. Argo CD (the GitOps controller).
 log "installing Argo CD (chart ${ARGOCD_CHART_VERSION})"

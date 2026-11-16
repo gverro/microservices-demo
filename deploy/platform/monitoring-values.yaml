@@ -59,8 +59,14 @@ grafana:
   sidecar:
     dashboards:
       searchNamespace: null
+    datasources:
+      alertmanager:
+        enabled: false     # Alertmanager is not installed
   rbac:
     namespaced: true
+  # Measured on Grafana 13.3: ~270 MiB of anonymous memory alone. The page cache counts against the limit: with 384Mi the
+  # kernel kept evicting Grafana's files and Grafana re-read them from disk (~1 TB read in 1 h, 3-6 CPU cores, probes
+  # timing out). After the fix ~270 MiB anon + ~420 MiB of file cache: 1Gi leaves room for both.
   resources:
-    requests: {cpu: 50m, memory: 128Mi}
-    limits: {memory: 384Mi}
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 1Gi}
