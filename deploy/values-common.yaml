@@ -1,5 +1,6 @@
 # Settings shared by every environment (dev, prod). Environment files only override what differs.
-# Usage: helm upgrade --install onlineboutique helm-chart -n <env> -f deploy/values-common.yaml -f deploy/values-<env>.yaml
+# Deployed by Argo CD (deploy/argocd/boutique-<env>.yaml) together with values-<env>.yaml; to render locally:
+#   helm template onlineboutique helm-chart -n <env> -f deploy/values-common.yaml -f deploy/values-<env>.yaml
 
 images:
   tag: v0.10.7            # pinned upstream release for all services we do not build
