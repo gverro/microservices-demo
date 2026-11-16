@@ -23,7 +23,7 @@ env:
   HELM_VERSION: v4.3.1
   KUBECONFORM_VERSION: v0.8.0
   KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  # kubeconform-linux-amd64.tar.gz
-  # JSON schemas for CRDs (SealedSecret, Argo CD Application), pinned to a commit of the catalog.
+  # JSON schemas for CRDs (SealedSecret, Argo CD Application, ServiceMonitor), pinned to a commit of the catalog.
   CRD_SCHEMAS: https://raw.githubusercontent.com/datreeio/CRDs-catalog/89c736bdde38b5fecd0f8436ec5f3aa3679a3b86/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
   TRIVY_VERSION: v0.76.1
 
@@ -67,7 +67,7 @@ jobs:
             echo "== ${env}"
             helm template onlineboutique helm-chart -n "${env}" \
               -f deploy/values-common.yaml -f "deploy/values-${env}.yaml" \
-              | kubeconform -strict -summary
+              | kubeconform -strict -summary -schema-location default -schema-location "${CRD_SCHEMAS}"
           done
       - name: SealedSecrets and Argo CD manifests (CRD schemas)
         run: |

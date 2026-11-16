@@ -16,6 +16,7 @@ readonly CLUSTER_NAME="boutique"
 readonly TRAEFIK_CHART_VERSION="42.3.2"          # app v3.7.17
 readonly SEALED_SECRETS_CHART_VERSION="2.22.0"   # app v0.41.2
 readonly ARGOCD_CHART_VERSION="10.18.0"          # app v3.6.1 (3.6 is the first line tested with Kubernetes 1.37)
+readonly MONITORING_CHART_VERSION="93.3.0"     # kube-prometheus-stack: Prometheus Operator v0.95.2, Prometheus v3.16.0, Grafana 13.3.1
 
 # Backup of the Sealed Secrets private key, kept OUTSIDE Git. Restoring it lets a recreated cluster
 # decrypt the SealedSecrets committed in deploy/secrets/. Create it with scripts/backup-sealing-key.sh.
@@ -101,12 +102,25 @@ if ! docker image inspect "${FRONTEND_IMAGE}" >/dev/null 2>&1; then
 fi
 kind load docker-image "${FRONTEND_IMAGE}" --name "${CLUSTER_NAME}"
 
-# 5. Argo CD (the GitOps controller).
+# 5. Monitoring: Prometheus Operator, Prometheus, Grafana. Installed before the Applications because the app chart
+#    creates a ServiceMonitor, a type (CRD) that exists only once this chart is in.
+log "installing kube-prometheus-stack ${MONITORING_CHART_VERSION}"
+helm upgrade --install monitoring kube-prometheus-stack --repo https://prometheus-community.github.io/helm-charts \
+  --version "${MONITORING_CHART_VERSION}" -n monitoring --create-namespace \
+  -f "${REPO_ROOT}/deploy/platform/monitoring-values.yaml" --wait --timeout 10m >/dev/null
+# Dashboards as code: every JSON in deploy/platform/dashboards/ becomes a ConfigMap that the Grafana sidecar loads.
+for dashboard in "${REPO_ROOT}"/deploy/platform/dashboards/*.json; do
+  name="dashboard-$(basename "${dashboard}" .json)"
+  kubectl create configmap "${name}" -n monitoring --from-file="${dashboard}" --dry-run=client -o yaml \
+    | kubectl label --local -f - grafana_dashboard=1 -o yaml | kubectl apply -f - >/dev/null
+done
+
+# 6. Argo CD (the GitOps controller).
 log "installing Argo CD (chart ${ARGOCD_CHART_VERSION})"
 helm upgrade --install argocd argo-cd --repo https://argoproj.github.io/argo-helm --version "${ARGOCD_CHART_VERSION}" \
   -n argocd --create-namespace -f "${REPO_ROOT}/deploy/platform/argocd-values.yaml" --wait --timeout 10m >/dev/null
 
-# 6. Environments: namespaces belong to the platform (the AppProject forbids cluster-scoped objects);
+# 7. Environments: namespaces belong to the platform (the AppProject forbids cluster-scoped objects);
 #    everything inside them comes from Git through the Applications.
 [[ "${GITOPS_REPO}" == "${DEFAULT_GITOPS_REPO}" ]] || log "Argo CD will follow ${GITOPS_REPO}"
 apply_from_git_repo() { sed "s|${DEFAULT_GITOPS_REPO}|${GITOPS_REPO}|g" "$1" | kubectl apply -f - >/dev/null; }
@@ -152,6 +166,7 @@ for env in "${ENVIRONMENTS[@]}"; do
   log "${env}: ${app} Synced/Healthy, http://${host:-<no ingress>}/"
 done
 log "Argo CD UI: http://argocd.localhost/ (user admin, password: scripts/argocd-password.sh)"
+log "Grafana: http://grafana.localhost/ (user admin, password: scripts/grafana-password.sh)"
 
 if [[ ${#resealed[@]} -gt 0 ]]; then
   log "WARNING: new Redis passwords were sealed for: ${resealed[*]} (deploy/secrets/ modified locally)."

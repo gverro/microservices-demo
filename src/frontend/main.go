@@ -165,7 +165,15 @@ func main() {
 	var handler http.Handler = r
 	handler = &logHandler{log: log, next: handler}     // add logging
 	handler = ensureSessionID(handler)                 // add session ID
+	handler = instrumentHTTP(r, handler)               // Kiratech: Prometheus metrics (metrics.go)
 	handler = otelhttp.NewHandler(handler, "frontend") // add OTel tracing
+
+	// Kiratech: metrics on their own port, only when asked for (the Helm chart sets METRICS_PORT).
+	if metricsPort := os.Getenv("METRICS_PORT"); metricsPort != "" {
+		startMetricsServer(log, addr, metricsPort)
+	} else {
+		log.Info("Metrics disabled.")
+	}
 
 	log.Infof("starting server on %s:%s", addr, srvPort)
 	log.Fatal(http.ListenAndServe(addr+":"+srvPort, handler))

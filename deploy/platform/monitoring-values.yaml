@@ -1,0 +1,72 @@
+# Monitoring for the local kind cluster (chart kube-prometheus-stack, version pinned in scripts/install.sh).
+# Prometheus Operator + Prometheus + Grafana + kube-state-metrics + node-exporter, sized for a laptop.
+# Our own metrics: the frontend ServiceMonitor ships with the app chart (helm-chart/, opt-in), the
+# dashboard with deploy/platform/dashboards/.
+
+# No Alertmanager on a local cluster: rules are still evaluated and visible in Prometheus (Alerts page).
+alertmanager:
+  enabled: false
+
+# kind runs etcd, scheduler, controller-manager and kube-proxy with metrics bound to 127.0.0.1 of the node:
+# Prometheus cannot reach them and their targets would always be "down". Not part of what we observe here.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    # Pick up ServiceMonitors / PodMonitors / rules from every namespace, not only those labelled
+    # with this Helm release (the frontend ServiceMonitor lives in dev and prod).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    retention: 2d                 # demo data only; the volume is an emptyDir (lost on restart)
+    retentionSize: 1GB
+    resources:
+      requests: {cpu: 100m, memory: 400Mi}
+      limits: {memory: 1Gi}
+
+prometheusOperator:
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+kube-state-metrics:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+
+prometheus-node-exporter:
+  resources:
+    requests: {cpu: 10m, memory: 16Mi}
+    limits: {memory: 64Mi}
+
+grafana:
+  # The admin password is generated at install time and kept only in the cluster (scripts/grafana-password.sh).
+  adminUser: admin
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - grafana.localhost
+  # Dashboards come from ConfigMaps labelled grafana_dashboard=1 in the monitoring namespace only
+  # (chart default would watch every namespace and need a ClusterRole).
+  sidecar:
+    dashboards:
+      searchNamespace: null
+    datasources:
+      alertmanager:
+        enabled: false     # Alertmanager is not installed
+  rbac:
+    namespaced: true
+  # Measured on Grafana 13.3: ~270 MiB of anonymous memory alone. The page cache counts against the limit: with 384Mi the
+  # kernel kept evicting Grafana's files and Grafana re-read them from disk (~1 TB read in 1 h, 3-6 CPU cores, probes
+  # timing out). After the fix ~270 MiB anon + ~420 MiB of file cache: 1Gi leaves room for both.
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 1Gi}
