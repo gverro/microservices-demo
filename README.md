@@ -1,5 +1,7 @@
 # Online Boutique — Challenge tecnica L2 Kiratech
 
+[![ci](https://github.com/gverro/microservices-demo/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/gverro/microservices-demo/actions/workflows/ci.yaml)
+
 Fork di [GoogleCloudPlatform/microservices-demo](https://github.com/GoogleCloudPlatform/microservices-demo)
 (release **v0.10.7**, licenza Apache-2.0) usato come workload della challenge. Il README originale prosegue
 più sotto, invariato.
@@ -27,13 +29,38 @@ l'equivalenza senza un vantaggio chiaro, mentre Online Boutique è la scelta ind
   il codice del frontend (unico servizio che verrà ricompilato).
 - **Non usate**: `shoppingassistantservice` (richiede Gemini/AlloyDB, disattivato di default), `kubernetes-manifests/`,
   `kustomize/`, `release/`, `istio-manifests/`, `terraform/`, `cloudbuild.yaml`, `skaffold.yaml`, workflow CI upstream.
-- **Aggiunte**: `kind/`, `scripts/`, `deploy/` (values per ambiente, Ingress controller, secret cifrati), i documenti in `docs/` elencati sotto.
+- **Aggiunte**: `kind/`, `scripts/`, `deploy/` (values per ambiente, piattaforma, secret cifrati, Application di Argo CD),
+  la pipeline `.github/workflows/ci.yaml`, i documenti in `docs/` elencati sotto.
 
 ## Documentazione della challenge
 - [Architettura e mappatura dei componenti](docs/ARCHITECTURE.md)
 - [Decisioni di progetto](docs/DECISIONS.md)
 - [Modifiche rispetto all'upstream](docs/CHANGES.md)
 - [Sicurezza e limiti residui](docs/SECURITY.md)
+
+## CI/CD e GitOps
+```mermaid
+flowchart LR
+    dev([commit / PR]) --> ci["GitHub Actions ci.yaml<br/>lint · validate · test · build + Trivy"]
+    ci -- "solo da main, tag nuovo" --> ghcr[("GHCR<br/>frontend:&lt;tag&gt;")]
+    dev -- "merge su main" --> git[("Git: main")]
+    argo["Argo CD<br/>(nel cluster)"] -- "legge ogni ~2-3 min" --> git
+    argo -- "sync automatica" --> d[namespace dev]
+    argo -. "sync manuale (promozione)" .-> p[namespace prod]
+    d & p -- "pull immagine" --> ghcr
+```
+- **CI** ([`ci.yaml`](.github/workflows/ci.yaml)) a ogni PR e push su `main`: `shellcheck` e `helm lint`; `helm template` per ambiente →
+  `kubeconform -strict` (anche SealedSecret e Application); `go vet` e `go test -race` del frontend; build dell'immagine e scansione
+  Trivy (CVE critiche correggibili = run rosso). Solo da `main` l'immagine va su GHCR, e solo se il tag non esiste (tag immutabili).
+  Run di riferimento: [verde](https://github.com/gverro/microservices-demo/actions/runs/43267250772) ·
+  [rosso voluto, manifest non valido](https://github.com/gverro/microservices-demo/actions/runs/43269182026) ·
+  [pubblicazione dell'immagine da `main`](https://github.com/gverro/microservices-demo/actions/runs/43282326186).
+- **CD GitOps (modello pull)**: la CI non tocca mai il cluster. Argo CD, installato nel cluster, segue `main` con due Application
+  ([`deploy/argocd/`](deploy/argocd/)): `boutique-dev` si sincronizza da sola (`prune`, `selfHeal`: le modifiche manuali vengono annullate),
+  `boutique-prod` si promuove a mano (pulsante **SYNC** o CLI) e intanto mostra `OutOfSync` con il diff. Stesso commit, stessa immagine.
+- **Rilasciare nuovo codice del frontend**: modifica in `src/frontend/` → nuovo tag in `deploy/values-common.yaml` (e in `scripts/install.sh`)
+  → PR verde → merge: la CI pubblica l'immagine, Argo CD aggiorna dev; prod con la sync manuale.
+- **UI di Argo CD**: http://argocd.localhost/, utente `admin`, password stampata da `./scripts/argocd-password.sh` (resta solo nel cluster).
 
 ## Avvio rapido (locale, kind)
 Prerequisiti: Docker, kind v0.33.0, kubectl v1.37.x, Helm v4.3.x, **kubeseal v0.41.2**, openssl.
@@ -45,27 +72,29 @@ tar -xzf kubeseal-0.41.2-linux-amd64.tar.gz kubeseal && install -m 755 kubeseal 
 ```
 
 ```bash
-./scripts/install.sh          # cluster + Traefik + Sealed Secrets + build del frontend + dev e prod (idempotente)
+./scripts/install.sh          # cluster + Traefik + Sealed Secrets + immagine del frontend + Argo CD, che poi installa dev e prod (idempotente)
 ./scripts/backup-sealing-key.sh   # una volta sola, dopo la prima installazione: salva la chiave di Sealed Secrets fuori da Git
 ```
-Poi: **http://dev.boutique.localhost/** (dev) e **http://boutique.localhost/** (prod). I nomi `*.localhost`
+Poi: **http://dev.boutique.localhost/** (dev), **http://boutique.localhost/** (prod) e **http://argocd.localhost/** (Argo CD). I nomi `*.localhost`
 puntano a `127.0.0.1` (verificato con `curl` da WSL; i browser moderni li risolvono allo stesso modo).
 
 **Secret su un clone nuovo.** I file `deploy/secrets/<env>/*.sealed.yaml` sono cifrati con la chiave del cluster
 dell'autore. Se il tuo cluster non la ha (nessun backup in `~/.config/kiratech-boutique/`), `install.sh` se ne accorge
 (`kubeseal --validate`), genera **nuove** password casuali cifrate per il tuo cluster e lo segnala: l'app funziona, i file
-risultano modificati in Git. Committali nel tuo fork se vuoi guidare il cluster da Git (GitOps), poi lancia
-`./scripts/backup-sealing-key.sh`. Dettagli in [SECURITY](docs/SECURITY.md).
+risultano modificati in Git. Poiché Argo CD applica i secret **da Git**, vanno committati nel tuo fork e lo script va rilanciato
+puntando al fork: `GITOPS_REPO=https://github.com/<tu>/microservices-demo.git ./scripts/install.sh`; poi `./scripts/backup-sealing-key.sh`.
+Dettagli in [SECURITY](docs/SECURITY.md).
 
 | | dev | prod |
 |---|---|---|
 | Namespace / host | `dev` / `dev.boutique.localhost` | `prod` / `boutique.localhost` |
 | Frontend | 1 replica | 2 repliche |
 | Load generator | sì | no |
-| Comune | stessa immagine `frontend:v0.10.7-kt.1`, NetworkPolicy, seccomp, Redis con password, RBAC minimo | |
+| Sincronizzazione Argo CD | automatica (`prune`, `selfHeal`) | manuale (promozione) |
+| Comune | stessa immagine `ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.1`, NetworkPolicy, seccomp, Redis con password, RBAC minimo | |
 
 Struttura: `helm-chart/` (chart upstream con opzioni aggiunte), `deploy/values-common.yaml` + `values-<env>.yaml`,
-`deploy/secrets/<env>/` (SealedSecret), `deploy/platform/` (Traefik). Dettagli in [CHANGES](docs/CHANGES.md) e [SECURITY](docs/SECURITY.md).
+`deploy/secrets/<env>/` (SealedSecret), `deploy/platform/` (values di Traefik e Argo CD), `deploy/argocd/` (AppProject e Application). Dettagli in [CHANGES](docs/CHANGES.md) e [SECURITY](docs/SECURITY.md).
 
 ### Build ed esecuzione locale del frontend (unico servizio ricompilato)
 ```bash
@@ -89,11 +118,12 @@ Variabili d'ambiente del frontend nel cluster:
 | `ENABLE_ASSISTANT` | env nel Deployment | `false` |
 
 Per cartservice `REDIS_ADDR` vale `redis-cart:6379,password=$(REDIS_PASSWORD)`, con `REDIS_PASSWORD` letta dal **Secret** `redis-auth`.
-Dopo una modifica al codice del frontend si cambia il tag (in `scripts/install.sh` e `deploy/values-common.yaml`): l'immagine
-si ricostruisce solo se il tag non esiste già.
+Dopo una modifica al codice del frontend si cambia il tag (in `scripts/install.sh` e `deploy/values-common.yaml`): la CI pubblica
+l'immagine solo se il tag non esiste già (vedi [CI/CD e GitOps](#cicd-e-gitops)).
 
 Verifica rapida:
 ```bash
+kubectl get applications -n argocd                                # boutique-dev e boutique-prod: Synced, Healthy
 kubectl get pods -n dev; kubectl get pods -n prod                 # tutti Running e READY
 curl -s -o /dev/null -w '%{http_code}\n' http://dev.boutique.localhost/   # 200
 ```

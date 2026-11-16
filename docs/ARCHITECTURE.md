@@ -120,7 +120,8 @@ Prima colonna: chart upstream (F1). Seconda: stato dopo il packaging dev/prod (F
 | Probe | gRPC sui backend, HTTP `/_healthz` sul frontend, TCP su Redis | Invariate (approfondimento nella fase di osservabilità) |
 | Spegnimento | Nessun hook | Frontend con `preStop` di 5 s: rolling update di prod senza errori (0 su 399 richieste, prima 3 su 417) |
 | Log | JSON su stdout quasi ovunque; testo su cartservice, Redis, loadgenerator | Invariato (gap su cartservice, fase di osservabilità) |
-| Immagini | Tag `v0.10.7`; Redis e busybox per digest | Frontend costruito da noi con base per digest; gli altri per tag (limite L5 in `SECURITY.md`) |
+| Immagini | Tag `v0.10.7`; Redis e busybox per digest | Frontend costruito dalla CI con base per digest e pubblicato su GHCR (tag immutabile); gli altri per tag (limite L5 in `SECURITY.md`) |
+| Deploy | `helm install` / `kubectl apply` a mano | **Argo CD** applica da `main` il chart con i values dell'ambiente e i SealedSecret; dev automatico, prod con sync manuale (§9) |
 
 ## 5. Mappatura dei componenti richiesti dalla challenge (PDF §3)
 
@@ -132,7 +133,7 @@ Prima colonna: chart upstream (F1). Seconda: stato dopo il packaging dev/prod (F
 | Worker / componente asincrono | Nessuno: tutte le chiamate sono sincrone | **Gap**: un CronJob di smoke test come componente batch |
 | Database, cache, broker | Redis (stato del carrello); nessun broker | Broker assente, dichiarato |
 | ConfigMap e Secret | ConfigMap del frontend; Secret `redis-auth` da Sealed Secrets | Coperto (`SECURITY.md`) |
-| CI/CD o GitOps | Workflow upstream legati a Google Cloud (disattivati sul fork) | GitHub Actions + Argo CD (F3) |
+| CI/CD o GitOps | GitHub Actions `ci.yaml` (lint, validazione, test, build, scansione, push su GHCR); Argo CD con un'Application per ambiente | Coperto (§9). I workflow upstream, legati a Google Cloud, sono stati rimossi |
 | Monitoring e logging | Log JSON quasi ovunque; integrazioni Google Cloud Operations disattivate; nessun `/metrics` Prometheus | Metrica nel frontend, Prometheus e Grafana (F4) |
 | Krateo | — | Blueprint e YAML concettuale, PoC se le risorse lo permettono (F6) |
 
@@ -146,6 +147,8 @@ Prima colonna: chart upstream (F1). Seconda: stato dopo il packaging dev/prod (F
 | `kubernetes-manifests/`, `kustomize/`, `release/` | Alternative di deploy upstream | No |
 | `istio-manifests/`, `terraform/`, `cloudbuild.yaml`, `skaffold.yaml` | Integrazioni Google Cloud / Istio | No |
 | `kind/cluster.yaml`, `scripts/` | **Aggiunti per la challenge** (vedi `CHANGES.md`) | Sì |
+| `deploy/` | Values per ambiente, piattaforma (Traefik, Argo CD), SealedSecret, AppProject e Application | Sì |
+| `.github/workflows/ci.yaml` | Unica pipeline del fork | Sì |
 
 Build: ogni servizio ha il proprio Dockerfile; i linguaggi sono 5 (Go, C#, Node.js, Python, Java).
 Si ricompila solo il frontend; gli altri servizi usano le immagini upstream `v0.10.7`.
@@ -164,3 +167,41 @@ Si ricompila solo il frontend; gli altri servizi usano le immagini upstream `v0.
 Somma delle `requests` di memoria dei 12 pod ≈ 1,6 GB (limits ≈ 3 GB). Consumo reale misurato a regime
 con il loadgenerator attivo: nodo kind **1,19-1,25 GiB** (`docker stats`, 12/11/2026).
 Nota: l'init container `frontend-check` del loadgenerator non dichiara risorse; se si introducono ResourceQuota o LimitRange va gestito.
+
+## 9. CI/CD e GitOps (VERIFICATO, 13-16/11/2026)
+Due anelli separati: la **CI** (GitHub Actions) controlla il codice e pubblica l'immagine; il **CD** è Argo CD, che sta *dentro* il cluster
+e lo riallinea a Git (modello *pull*: nessuna credenziale del cluster fuori dal cluster). Schema e comandi nel [README](../README.md#cicd-e-gitops).
+
+```mermaid
+flowchart LR
+    subgraph gh["GitHub"]
+        main[("main")]
+        ghcr[("GHCR")]
+    end
+    subgraph cluster["Cluster kind"]
+        subgraph argocd["ns argocd"]
+            repo[repo-server<br/>git clone + helm template]
+            ctrl[application-controller<br/>confronta e applica]
+            srv[server<br/>UI · API]
+            redis[(redis<br/>cache)]
+        end
+        dev[ns dev]
+        prod[ns prod]
+    end
+    repo -- "HTTPS" --> main
+    ctrl --> repo
+    ctrl -- "sync automatica" --> dev
+    ctrl -. "sync manuale" .-> prod
+    srv -- "argocd.localhost via Traefik" --- user([operatore])
+    dev & prod -- "pull frontend" --> ghcr
+```
+
+| Oggetto | Ruolo |
+|---|---|
+| AppProject `boutique` | Limita le Application: solo questo repository, solo i namespace `dev` e `prod`, nessuna risorsa cluster-scoped |
+| Application `boutique-dev` | Chart `helm-chart/` + `values-common.yaml` + `values-dev.yaml` + `deploy/secrets/dev/`; `automated` con `prune` e `selfHeal` |
+| Application `boutique-prod` | Stessa sorgente con `values-prod.yaml` e `deploy/secrets/prod/`; nessuna sync automatica: la promozione è un gesto esplicito |
+
+Misure del ciclo (13/11 e 16/11): merge della PR #4 → dev aggiornato in ~1,5 minuti senza interventi; una modifica manuale alla
+ConfigMap di dev annullata in 1 secondo (`selfHeal`); in prod la stessa modifica (3 repliche invece di 2) resta e l'Application
+mostra `OutOfSync` finché un operatore non sincronizza. Consumo di Argo CD: 4 pod, limiti di memoria in `deploy/platform/argocd-values.yaml`.
