@@ -77,9 +77,11 @@ probes:
       periodSeconds: 5
       timeoutSeconds: 3
       failureThreshold: 36   # up to 180 s to start
+    # Only timeoutSeconds / failureThreshold here: initialDelaySeconds and periodSeconds are set per service in the
+    # templates, and the same key twice would make invalid YAML.
     liveness:
       timeoutSeconds: 3
-      failureThreshold: 5    # restart only after ~25 s of failures (period 5 s), not 15 s
+      failureThreshold: 5    # restart after 5 failures in a row: 25-75 s depending on the periodSeconds of the service
     readiness:
       timeoutSeconds: 3
 
@@ -160,6 +162,7 @@ frontend:
     enabled: false
     port: 9090
     # Namespace of Prometheus, the only client allowed on the metrics port by the NetworkPolicy.
+    # With externalService=true (upstream rule `- {}`) or networkPolicies.create=false the port is open to every pod.
     scraperNamespace: monitoring
     # ServiceMonitor for the Prometheus Operator (CRD monitoring.coreos.com/v1 must exist in the cluster).
     serviceMonitor:

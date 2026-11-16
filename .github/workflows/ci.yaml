@@ -69,6 +69,8 @@ jobs:
               -f deploy/values-common.yaml -f "deploy/values-${env}.yaml" \
               | kubeconform -strict -summary -schema-location default -schema-location "${CRD_SCHEMAS}"
           done
+      - name: Grafana dashboards are valid JSON
+        run: for f in deploy/platform/dashboards/*.json; do jq empty "$f"; done
       - name: SealedSecrets and Argo CD manifests (CRD schemas)
         run: |
           kubeconform -strict -summary -schema-location default -schema-location "${CRD_SCHEMAS}" \

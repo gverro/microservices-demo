@@ -134,7 +134,7 @@ Prima colonna: chart upstream (F1). Seconda: stato dopo il packaging dev/prod (F
 | Database, cache, broker | Redis (stato del carrello); nessun broker | Broker assente, dichiarato |
 | ConfigMap e Secret | ConfigMap del frontend; Secret `redis-auth` da Sealed Secrets | Coperto (`SECURITY.md`) |
 | CI/CD o GitOps | GitHub Actions `ci.yaml` (lint, validazione, test, build, scansione, push su GHCR); Argo CD con un'Application per ambiente | Coperto (§9). I workflow upstream, legati a Google Cloud, sono stati rimossi |
-| Monitoring e logging | Log JSON quasi ovunque; integrazioni Google Cloud Operations disattivate; nessun `/metrics` Prometheus | Metrica nel frontend, Prometheus e Grafana (F4) |
+| Monitoring e logging | Log JSON quasi ovunque; integrazioni Google Cloud Operations disattivate; nessun `/metrics` Prometheus | ✅ F4: metriche Prometheus nel frontend (`:9090`, D-06), kube-prometheus-stack, dashboard Grafana da Git (D-28); log senza raccolta centralizzata (`kubectl logs`) |
 | Krateo | — | Blueprint e YAML concettuale, PoC se le risorse lo permettono (F6) |
 
 ## 6. Struttura del repository e build

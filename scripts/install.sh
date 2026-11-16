@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One command to get the whole local platform: kind cluster, Traefik, Sealed Secrets, Argo CD, and the
+# One command to get the whole local platform: kind cluster, Traefik, Sealed Secrets, monitoring (Prometheus,
+# Grafana and the dashboards of deploy/platform/dashboards/), Argo CD, and the
 # Argo CD Applications that deploy Online Boutique in dev and prod from Git (GitOps). Idempotent.
 # This script installs the PLATFORM; the applications are deployed by Argo CD, never by this script.
 # Usage: ./scripts/install.sh            (everything)
