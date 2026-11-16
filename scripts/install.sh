@@ -41,7 +41,7 @@ for env in "${ENVIRONMENTS[@]}"; do
   [[ -f "${REPO_ROOT}/deploy/argocd/boutique-${env}.yaml" ]] || die "unknown environment '${env}' (no deploy/argocd/boutique-${env}.yaml)"
 done
 # The frontend image has one source of truth: frontend.image in deploy/values-common.yaml (also read by CI).
-FRONTEND_IMAGE="$(awk '/^frontend:/ {in_fe=1; next} /^[^[:space:]#]/ {in_fe=0} in_fe && $1 == "image:" {print $2; exit}' \
+FRONTEND_IMAGE="$(awk '/^frontend:/ {in_fe=1; next} /^[^[:space:]#]/ {in_fe=0} in_fe && /^  image:/ {print $2; exit}' \
   "${REPO_ROOT}/deploy/values-common.yaml")"
 readonly FRONTEND_IMAGE
 [[ "${FRONTEND_IMAGE}" == ghcr.io/*:* ]] || die "cannot read frontend.image from deploy/values-common.yaml (got '${FRONTEND_IMAGE}')"
@@ -129,21 +129,27 @@ for env in "${ENVIRONMENTS[@]}"; do
     log "WARNING: ${env}: not waiting for ${app}: Git still has a SealedSecret this cluster cannot decrypt (see below)"
     continue
   fi
+  host="$(kubectl get ingress frontend -n "${env}" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)"
   if [[ "${manual_sync}" == true ]]; then
-    # Already installed and promoted by hand: Git may be ahead (a promotion pending). Report it, do not wait for it.
+    # Already installed and promoted by hand: Git may be ahead (a promotion pending). Report the state, never wait on it:
+    # a resource added in Git but not promoted yet is "Missing" and would keep the Application from becoming Healthy.
     sync_status="$(kubectl get application "${app}" -n argocd -o jsonpath='{.status.sync.status}')"
-    [[ "${sync_status}" == Synced ]] \
-      || log "WARNING: ${env}: ${app} is ${sync_status:-not compared yet}: a promotion is pending (sync it from the Argo CD UI)"
-  else
-    # Synced first: an Application with no resources yet already reports Healthy.
-    log "${env}: waiting for ${app} to be Synced, then Healthy"
-    kubectl wait application "${app}" -n argocd --for=jsonpath='{.status.sync.status}'=Synced --timeout=10m >/dev/null \
-      || die "${app} not Synced: kubectl get application ${app} -n argocd -o jsonpath='{.status.conditions}'"
+    health_status="$(kubectl get application "${app}" -n argocd -o jsonpath='{.status.health.status}')"
+    case "${sync_status}" in
+      Synced) ;;
+      OutOfSync) log "WARNING: ${env}: ${app} is OutOfSync: a promotion is pending (sync it from the Argo CD UI)" ;;
+      *) log "WARNING: ${env}: ${app} sync status is '${sync_status:-not compared yet}': check the Application conditions in the Argo CD UI" ;;
+    esac
+    log "${env}: ${app} ${sync_status:-?}/${health_status:-?}, http://${host:-<no ingress>}/"
+    continue
   fi
+  # Synced first: an Application with no resources yet already reports Healthy.
+  log "${env}: waiting for ${app} to be Synced, then Healthy"
+  kubectl wait application "${app}" -n argocd --for=jsonpath='{.status.sync.status}'=Synced --timeout=10m >/dev/null \
+    || die "${app} not Synced: kubectl get application ${app} -n argocd -o jsonpath='{.status.conditions}'"
   kubectl wait application "${app}" -n argocd --for=jsonpath='{.status.health.status}'=Healthy --timeout=10m >/dev/null \
     || die "${app} not Healthy: kubectl get application ${app} -n argocd -o jsonpath='{.status.resources}'"
-  host="$(kubectl get ingress frontend -n "${env}" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)"
-  log "${env}: ${app} $(kubectl get application "${app}" -n argocd -o jsonpath='{.status.sync.status}')/Healthy, http://${host:-<no ingress>}/"
+  log "${env}: ${app} Synced/Healthy, http://${host:-<no ingress>}/"
 done
 log "Argo CD UI: http://argocd.localhost/ (user admin, password: scripts/argocd-password.sh)"
 
