@@ -1,6 +1,9 @@
 # prod: two frontend replicas (rolling updates keep one replica serving), no synthetic traffic.
 frontend:
   replicas: 2
+  # Phase 5 rollback exercise (R-17): visible, harmless change promoted to prod, then rolled back from the
+  # Argo CD history (emergency path) and reverted in Git. Banner "Local" instead of "On-Premises".
+  platform: local
   ingress:
     host: boutique.localhost
 
