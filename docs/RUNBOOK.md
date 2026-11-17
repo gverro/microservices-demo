@@ -188,7 +188,22 @@ S5 rilascio cattivo;memoria 4Mi invece di 64Mi (commit su main);nuovo CrashLoopB
 - **Rimedio e verifica**: policy da Git (o `restore`) → smoke test OK.
 
 ### S5 — Rilascio cattivo arrivato da Git (`CrashLoopBackOff`)
-Vedi sezione 4.2: è il guasto usato per l'esercizio di rollback.
+- **Guasto**: commit su `main` (PR #10) con memoria del frontend `4Mi` invece di `64Mi`, solo in `values-dev.yaml`. Supera `helm lint` e kubeconform:
+  la CI è verde. È il caso che la validazione non può fermare.
+- **Sintomo**: smoke test `FAIL argocd … health=Progressing` e `FAIL deploy frontend rollout not complete: 2 pods for 1 replicas`; il sito risponde 200.
+- **Evidenze**:
+  ```
+  $ kubectl get pods -n dev -l app=frontend
+  frontend-84cb6c67d-d4g7b   1/1     Running            0            10h
+  frontend-9fc489bf5-cljsq   0/1     CrashLoopBackOff   1 (7s ago)   17s
+  $ kubectl get events -n dev --field-selector involvedObject.name=frontend-9fc489bf5-cljsq,reason=Failed -o jsonpath='{.items[-1].message}'
+  Error: … runc create failed: unable to start container process: container init was OOM-killed (memory limit too low?)
+  ```
+  Lo stato alterna `RunContainerError` e `CrashLoopBackOff` con attese crescenti. Dopo 10 minuti (`progressDeadlineSeconds: 600`) Argo CD passa
+  da `Progressing` a **`Degraded`**: terzo segnale del rollout bloccato, oltre a eventi e smoke test.
+- **Causa**: il limite di memoria è più basso di quello che serve per avviare il container (qui muore il processo di init di runc, exit 128 `StartError`;
+  con un limite poco più alto si vedrebbe `OOMKilled`, exit 137, a regime). Il rolling update tiene in servizio il pod vecchio.
+- **Rimedio**: `git revert` (sezione 4.2). Non `kubectl rollout undo` (sezione 4.4).
 
 
 ## 4. Rollback
@@ -211,26 +226,75 @@ salvate nella voce di history ("Rollback is just a convenience around Sync").
 
 ```
 git switch main && git pull
-git log --oneline -3 -- deploy/values-dev.yaml   # trovare il commit cattivo
+git log --oneline --no-merges -3 -- deploy/values-dev.yaml   # il commit cattivo, non il merge della PR
 git switch -c fix/revert-<sha>
 git revert <sha>                                 # nuovo commit che annulla il precedente
-git push -u origin fix/revert-<sha>               # PR, CI verde, merge
+git push -u origin fix/revert-<sha>               # PR (gh pr create --repo gverro/microservices-demo), CI verde, merge
 kubectl get application boutique-dev -n argocd -w # Argo CD applica il revert come qualsiasi commit
 scripts/smoke-test.sh dev
 ```
 
-Esito: DA COMPILARE dopo l'esecuzione (PR #10 rilascio cattivo, PR del revert, tempi misurati).
+Esito (17/11/2026, ore UTC): rilascio cattivo PR #10, revert PR #11.
+
+```
+Momento;Ora;Note
+merge della PR #10 (4Mi);09:41:16;
+Argo CD vede il commit;09:45:16;polling ogni ~3 min
+pod nuovo in CrashLoopBackOff;09:46:31;pod vecchio Running, HTTP 200
+Argo CD Degraded;09:56:17;progressDeadlineSeconds 600
+merge della PR #11 (git revert);10:03:24;
+Argo CD vede il commit;10:06:31;3 min 7 s di attesa
+sync completata;10:06:37;initiatedBy automated
+Synced/Healthy, pod rotto rimosso;10:06:39;3 min 15 s dal merge del revert
+```
+
+Durante tutto l'incidente (09:41 → 10:06) il sito ha risposto 200: il pod vecchio (`84cb6c67d-d4g7b`) non è mai stato tolto ed è lo stesso dopo il rollback.
+Il revert produce esattamente lo stato precedente (`git diff <commit buono> HEAD` vuoto). Il tempo è quasi tutto attesa del polling di Argo CD:
+un webhook da GitHub lo eliminerebbe, ma un cluster kind locale non è raggiungibile da GitHub.
 
 ### 4.3 Rollback di emergenza in prod dalla history di Argo CD
 
-Procedura (UI): Argo CD → `boutique-prod` → **History and rollback** → voce precedente → **Rollback**. Poi, sempre: `git revert` del commit
-che ha causato il problema, così `main` torna a coincidere con prod.
+Procedura (UI, http://argocd.localhost): `boutique-prod` → **History and rollback** → riga della voce buona → menu ⋮ → **Rollback** → conferma.
+Poi, sempre: `git revert` del commit che ha causato il problema, così `main` torna a coincidere con prod.
 
-Esito: DA COMPILARE dopo l'esecuzione.
+```
+# prima: quali voci ci sono e quale revisione contengono
+kubectl get application boutique-prod -n argocd -o json | jq -c '.status.history[] | {id, rev:.revisions[0][0:8], deployedAt, by:.initiatedBy.username}'
+# dopo: operazione eseguita e stato
+kubectl get application boutique-prod -n argocd -o json | jq -c '{sync:.status.sync.status, health:.status.health.status, op:.status.operationState.phase, revs:.status.operationState.syncResult.revisions}'
+```
+
+Attenzione: la history riporta alla revisione **salvata in quella voce**, non all'ultimo `main` buono. Prima di scegliere la voce si guarda cosa contiene.
+
+Esito (17/11/2026, ore UTC): modifica innocua e visibile in prod (banner "Local", PR #12), poi rollback dalla history e revert in Git (PR #13).
+
+```
+Momento;Ora;Note
+merge della PR #12;10:13:26;prod OutOfSync, nessuna sync da sola
+promozione (sync manuale, admin);10:14:13;history id 1; rolling update dei 2 frontend
+rollback dalla history a id 0 (admin);10:14:51 → 10:14:55;history id 2, revisione 74fee661
+prod Healthy, banner On-Premises;10:15:29;stato OutOfSync/Healthy: prod gira la versione vecchia, main dice ancora "Local"
+merge della PR #13 (git revert);10:52:41;
+prod Synced;10:52:57;nessuna nuova sync né rollout: Git e cluster coincidono di nuovo
+```
+
+Durante entrambi i rolling update il banner alternava le due versioni (una per pod) per circa 20 s: una modifica deve poter convivere con la versione precedente.
+Dopo il rollback lo smoke test di prod è OK con `WARN sync=OutOfSync`, che sparisce con il revert.
 
 ### 4.4 Perché non `kubectl rollout undo`
 
-Esito: DA COMPILARE dopo la prova in dev.
+Prova in dev con il rilascio cattivo ancora in `main` (17/11):
+
+```
+$ kubectl rollout undo deploy/frontend -n dev            # 10:00:37
+Warning: … Rolling back will not update the kubectl.kubernetes.io/last-applied-configuration annotation …
+deployment.apps/frontend rolled back                     # memoria di nuovo 128Mi
+$ kubectl get application boutique-dev -n argocd -o jsonpath='{.status.operationState.operation.initiatedBy} {.status.operationState.startedAt}'
+{"automated":true} 2026-11-17T10:00:45Z                  # 8 s dopo: selfHeal rimette 4Mi, il pod rotto torna
+```
+
+In dev il rimedio dura 8 secondi: Git dice ancora 4Mi. In prod (senza sync automatica) resterebbe, ma come drift: cluster diverso da Git,
+nessuna traccia nella history di Argo CD e il prossimo sync lo cancella. Il rollback che tiene è quello in Git.
 
 ### 4.5 Piattaforma: `helm rollback`
 
