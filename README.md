@@ -37,6 +37,7 @@ l'equivalenza senza un vantaggio chiaro, mentre Online Boutique è la scelta ind
 - [Decisioni di progetto](docs/DECISIONS.md)
 - [Modifiche rispetto all'upstream](docs/CHANGES.md)
 - [Sicurezza e limiti residui](docs/SECURITY.md)
+- [Runbook: verifica, troubleshooting, rollback](docs/RUNBOOK.md)
 
 ## CI/CD e GitOps
 ```mermaid
