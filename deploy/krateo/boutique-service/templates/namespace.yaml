@@ -1,0 +1,9 @@
+# The team namespace belongs to the platform layer (here: the Krateo Composition), not to Argo CD:
+# the AppProject "tenants" forbids cluster-scoped objects, as "boutique" does for dev and prod (D-23).
+# Deleting the Composition uninstalls this release and therefore deletes the namespace and everything in it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    {{- include "boutique-service.labels" . | nindent 4 }}

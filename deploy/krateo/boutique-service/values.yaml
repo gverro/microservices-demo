@@ -1,0 +1,33 @@
+# Parameters a consumer team may set. Everything else (images, NetworkPolicies, seccomp, RBAC, probes, Redis auth)
+# comes from deploy/values-common.yaml and cannot be changed from here.
+# values.schema.json validates these values: Helm uses it on lint/template/install, Krateo turns it into the CRD.
+
+# Team that owns the environment (namespace label, Application label).
+owner: ""
+
+# Service level: "critical" guarantees at least two frontend replicas (no downtime on rolling updates).
+tier: standard
+
+# Baseline settings and delivery policy: dev = deploy/values-dev.yaml + automatic sync,
+# prod = deploy/values-prod.yaml + manual sync (promotion, see docs/RUNBOOK.md).
+environment: dev
+
+# Namespace created for the team; must start with "team-" (the AppProject "tenants" only allows team-*).
+namespace: ""
+
+ingress:
+  # Public host name served by Traefik.
+  host: ""
+
+resources:
+  # Frontend replicas (the other services keep one replica each).
+  frontendReplicas: 1
+
+# Synthetic traffic (Locust) inside the environment.
+loadGenerator: false
+
+source:
+  # Allowed repositories are listed in the schema and in the AppProject "tenants".
+  repoURL: https://github.com/gverro/microservices-demo.git
+  # Git branch or tag to deploy.
+  revision: main

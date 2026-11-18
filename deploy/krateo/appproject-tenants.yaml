@@ -1,0 +1,19 @@
+# Fence for the team environments created through Krateo (golden path deploy/krateo/boutique-service):
+# same rules as the "boutique" project (this repository only, no cluster-scoped objects),
+# but the destinations are the team-* namespaces instead of dev and prod.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: tenants
+  namespace: argocd
+spec:
+  description: Team environments requested through Krateo (phase 6 PoC)
+  sourceRepos:
+    - https://github.com/gverro/microservices-demo.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: team-*
+  clusterResourceWhitelist: []   # the team namespace is created by the Krateo Composition (platform layer)
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

@@ -1,0 +1,50 @@
+# One Argo CD Application per team environment: Argo CD stays the only component that applies the app,
+# so history, rollback and drift detection work as for dev and prod (deploy/argocd/boutique-<env>.yaml).
+{{- $replicas := int .Values.resources.frontendReplicas }}
+{{- if and (eq .Values.tier "critical") (lt $replicas 2) }}{{ $replicas = 2 }}{{ end }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: boutique-{{ .Values.namespace }}
+  namespace: argocd
+  labels:
+    {{- include "boutique-service.labels" . | nindent 4 }}
+  finalizers:
+    # Deleting the Application (helm uninstall of the Composition) also deletes the resources it deployed.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: tenants
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.namespace }}
+  sources:
+    - repoURL: {{ .Values.source.repoURL }}
+      targetRevision: {{ .Values.source.revision }}
+      path: helm-chart
+      helm:
+        releaseName: onlineboutique
+        valueFiles:
+          - $repo/deploy/values-common.yaml
+          - $repo/deploy/values-{{ .Values.environment }}.yaml
+        # Consumer choices; in Argo CD valuesObject takes precedence over valueFiles.
+        valuesObject:
+          frontend:
+            replicas: {{ $replicas }}
+            ingress:
+              host: {{ .Values.ingress.host }}
+          loadGenerator:
+            create: {{ .Values.loadGenerator }}
+    # Same repository, named "repo" for the value files above; its path holds the namespace's SealedSecret (redis-auth).
+    - repoURL: {{ .Values.source.repoURL }}
+      targetRevision: {{ .Values.source.revision }}
+      ref: repo
+      path: deploy/secrets/{{ .Values.namespace }}
+  {{- if and (eq .Values.environment "dev") (not (include "boutique-service.paused" .)) }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+  {{- else }}
+  # prod (or a paused Composition): no automatic sync, a person promotes with a manual sync.
+  syncPolicy: {}
+  {{- end }}

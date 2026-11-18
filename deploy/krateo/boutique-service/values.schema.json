@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Online Boutique environment for an internal team",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["owner", "tier", "environment", "namespace", "ingress", "resources", "loadGenerator", "source"],
+  "properties": {
+    "owner": {
+      "type": "string",
+      "description": "Team that owns the environment, lowercase letters, digits and dashes (e.g. team-a).",
+      "pattern": "^[a-z][a-z0-9-]{1,29}$"
+    },
+    "tier": {
+      "type": "string",
+      "description": "Service level: critical guarantees at least two frontend replicas.",
+      "enum": ["standard", "critical"],
+      "default": "standard"
+    },
+    "environment": {
+      "type": "string",
+      "description": "dev: dev baseline and automatic sync; prod: prod baseline and manual sync (promotion).",
+      "enum": ["dev", "prod"],
+      "default": "dev"
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Namespace created for the team; must start with team-.",
+      "pattern": "^team-[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$"
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host"],
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Host name served by Traefik, under boutique.localhost (e.g. team-a.boutique.localhost).",
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?\\.boutique\\.localhost$"
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frontendReplicas"],
+      "properties": {
+        "frontendReplicas": {
+          "type": "integer",
+          "description": "Frontend replicas (1-3); tier critical raises it to at least 2.",
+          "minimum": 1,
+          "maximum": 3,
+          "default": 1
+        }
+      }
+    },
+    "loadGenerator": {
+      "type": "boolean",
+      "description": "Deploy the Locust load generator inside the environment.",
+      "default": false
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repoURL", "revision"],
+      "properties": {
+        "repoURL": {
+          "type": "string",
+          "description": "Git repository with helm-chart/ and deploy/ (allow-list).",
+          "enum": ["https://github.com/gverro/microservices-demo.git"],
+          "default": "https://github.com/gverro/microservices-demo.git"
+        },
+        "revision": {
+          "type": "string",
+          "description": "Branch or tag to deploy.",
+          "pattern": "^[A-Za-z0-9._/-]{1,60}$",
+          "default": "main"
+        }
+      }
+    }
+  }
+}
