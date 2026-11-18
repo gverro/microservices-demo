@@ -135,7 +135,7 @@ Prima colonna: chart upstream (F1). Seconda: stato dopo il packaging dev/prod (F
 | ConfigMap e Secret | ConfigMap del frontend; Secret `redis-auth` da Sealed Secrets | Coperto (`SECURITY.md`) |
 | CI/CD o GitOps | GitHub Actions `ci.yaml` (lint, validazione, test, build, scansione, push su GHCR); Argo CD con un'Application per ambiente | Coperto (§9). I workflow upstream, legati a Google Cloud, sono stati rimossi |
 | Monitoring e logging | Log JSON quasi ovunque; integrazioni Google Cloud Operations disattivate; nessun `/metrics` Prometheus | ✅ F4: metriche Prometheus nel frontend (`:9090`, D-06), kube-prometheus-stack, dashboard Grafana da Git (D-28); log senza raccolta centralizzata (`kubectl logs`) |
-| Krateo | — | Blueprint e YAML concettuale, PoC se le risorse lo permettono (F6) |
+| Krateo | Motore di Krateo (core-provider 1.0.0) con il golden path `BoutiqueService` (`deploy/krateo/`): una richiesta del team diventa namespace + Application di Argo CD | ✅ F6: PoC eseguita, portale non installato per le risorse ([KRATEO](KRATEO.md)) |
 
 ## 6. Struttura del repository e build
 

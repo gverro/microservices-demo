@@ -195,9 +195,64 @@ Costi;Composable FinOps: costi e utilizzo per owner/tier usando le label del gol
 ## 8. PoC minima
 
 Obiettivo: provare la catena Composition → CDC → Application → Argo CD → app sul cluster della demo, **senza** il portale.
-Script: `scripts/krateo-poc.sh` (opzionale, non fa parte di `install.sh`).
+Eseguita il 18/11/2026 su kind (Kubernetes `v1.37.0`, Argo CD `v3.6.1`), core-provider `1.0.0`. Tutto VERIFICATO con i comandi riportati.
 
-> Stato: **in corso** (passi 3 e 4 della fase 6). Gli esiti reali vengono riportati qui.
+```bash
+./scripts/krateo-poc.sh                                    # una volta: policy DNS, core-provider, AppProject tenants, CompositionDefinition (~3-4 min la prima volta)
+kubectl get compositiondefinition -n boutique-catalog      # boutique-service  READY True  SYNCED True
+kubectl apply -f deploy/krateo/examples/team-a.yaml        # il team chiede un ambiente
+kubectl get boutiqueservice -n boutique-catalog            # la richiesta, come risorsa Kubernetes
+kubectl get application boutique-team-a -n argocd          # Synced / Healthy
+curl -s -o /dev/null -w '%{http_code}\n' http://team-a.boutique.localhost/   # 200
+kubectl delete boutiqueservice team-a -n boutique-catalog  # il team restituisce l'ambiente
+```
+
+Esiti (output reali, ridotti alle righe utili):
+
+```
+Passo;Esito;Tempo
+CompositionDefinition;Ready=True Synced=True; CRD boutiqueservices.composition.krateo.io (kind BoutiqueService, versione v0-1-0) generata dallo schema; CDC boutiqueservices-v0-1-0-controller Running;~3 min dopo l'avvio del core-provider
+Richiesta sbagliata (dry-run lato server);rifiutata dall'API server: 3 errori nello stesso messaggio;immediato
+Composition team-a;Ready=True; namespace team-a con label owner/tier; release Helm team-a-97d46d2w; Application boutique-team-a in argocd (project tenants);11 s
+Ambiente team-a;Application Synced/Healthy; 11 Deployment 1/1; HTTP 200 su /, /product/OLJCESPC7Z, /cart; carrello funzionante (Redis con password dal SealedSecret); 12 NetworkPolicy; nessun loadgenerator;65 s dalla richiesta
+Cancellazione;release disinstallata, Application e namespace rimossi, nessun residuo; il catalogo resta pronto;~17 s
+```
+
+```
+$ kubectl apply --dry-run=server -f <richiesta con tier gold, namespace dev, 5 repliche>
+The BoutiqueService "team-a" is invalid:
+* spec.resources.frontendReplicas: Invalid value: 5: spec.resources.frontendReplicas in body should be less than or equal to 3
+* spec.tier: Unsupported value: "gold": supported values: "standard", "critical"
+* spec.namespace: Invalid value: "dev": spec.namespace in body should match '^team-[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$'
+```
+
+Cosa conferma la PoC:
+- il CDC crea risorse **fuori** dal namespace della Composition (l'Application in `argocd`) con l'RBAC che si genera da solo;
+- in Argo CD `valuesObject` prevale su `valueFiles`: `loadGenerator: false` vince su `values-dev.yaml`, che lo accende;
+- Krateo aggiunge label proprie (`krateo.io/composition-name`, `composition-id`, `composition-installed-version`…) accanto alle nostre owner/tier.
+
+Costo misurato (Prometheus, working set):
+
+```
+Componente;Memoria
+krateo-core-provider;276 MiB
+chart-inspector;78 MiB
+CDC boutique-service;19 MiB
+Totale motore Krateo;~373 MiB
+Ambiente team-a (senza loadgenerator);327 MiB
+Per confronto: dev / prod;528 / 401 MiB
+```
+
+Due problemi reali incontrati, entrambi dell'ambiente locale e non di Krateo, ma che un'adozione deve prevedere:
+
+```
+Sintomo;Causa;Rimedio
+core-provider in CrashLoopBackOff: "Cannot start controller manager: too many open files";limite inotify dell'host: 128 istanze (default Ubuntu/WSL), condiviso da tutti i container del nodo kind;fs.inotify.max_user_instances=512 come da kind known issues (D-32); lo script lo controlla
+CompositionDefinition Synced=False: "dial tcp 127.0.0.1:443: connection refused" verso ghcr.io;DNS della rete di casa con ndots:5 (come D-24); i pod del CDC sono creati da Krateo, il chart non ha valori dnsConfig;MutatingAdmissionPolicy che dà ndots:1 ai pod dei namespace di Krateo (D-33)
+```
+
+Errore di metodo da non ripetere: il primo controllo ha visto il core-provider `Running` a 48 secondi e lo ha dato per funzionante,
+ma stava già riavviandosi. Lo script ora controlla i **riavvii** dopo 30 secondi, non solo lo stato.
 
 
 ## 9. Alternative considerate
@@ -235,6 +290,9 @@ Backstage come portale;non è il prodotto richiesto dalla challenge; il motore d
   Evoluzione: le Composition in una cartella di Git, applicate da un'Application di Argo CD (GitOps anche per le richieste).
 - Lo schema JSON della CRD non supporta regole condizionali (`if/then`): i vincoli tra campi (es. critical ⇒ almeno 2 repliche) vanno nel template.
 - Sul portatile si dimostra solo il motore; il portale si può solo descrivere.
+- Il motore non è gratis: ~373 MiB (§8), più di un intero ambiente Online Boutique. Il chart 1.0.0 non dichiara `resources`.
+- Registrare un golden path è lento (~3 min la prima volta) e senza `--debug` il core-provider non scrive i passi intermedi.
+- Su un clone con un cluster nuovo il SealedSecret di `team-a` va rigenerato (`scripts/seal-secrets.sh team-a`), come quelli di dev e prod.
 
 **Rischi**
 - **Privilegi del motore.** Il ClusterRole del core-provider 1.0.0 ha `*` su `clusterroles` e `clusterrolebindings`, quindi può darsi
@@ -244,6 +302,8 @@ Backstage come portale;non è il prodotto richiesto dalla challenge; il motore d
 - **Cancellazione a cascata.** `kubectl delete` di una Composition disinstalla la release e cancella namespace e app. È voluto, ma serve RBAC
   sulle Composition (i team cancellano solo le proprie) ed eventualmente una protezione per i tier critical.
 - **Prodotto giovane.** La 3.0.0 ha avuto breaking change (release notes); serve un percorso di aggiornamento provato prima della produzione.
+- **Dipendenza dalla rete in uscita.** Core-provider, chart-inspector e CDC scaricano i chart da registry esterni: DNS, proxy o firewall aziendali
+  li bloccano in modo poco visibile (qui: CompositionDefinition ferma su `Synced=False`). In produzione serve un registry interno o un mirror.
 - **Lock-in moderato.** Il golden path è un chart Helm standard: senza Krateo si installa con `helm install` o con un'Application di Argo CD.
 - **Due riconciliatori in catena** (CDC sull'Application, Argo CD sull'app): se i confini (§5) non sono chiari, si rischiano modifiche che si annullano a vicenda.
 
