@@ -8,12 +8,14 @@
 # Why the pause: boutique-dev has selfHeal, so a change made with kubectl is reverted within seconds and the
 # symptom would never be visible. Every fault below changes a resource that Argo CD manages, so "restore"
 # (auto-sync on again) is also the fix: the cluster goes back to what Git declares.
-set -euo pipefail
+set -Eeuo pipefail
 
 readonly EXPECTED_CONTEXT="kind-boutique"
 readonly NS="dev"
 readonly APP="boutique-dev"
 readonly BAD_TAG="v0.0.0-does-not-exist"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_ROOT
 
 usage() {
   cat <<EOF
@@ -27,6 +29,8 @@ EOF
 }
 
 die() { printf '[fault] ERROR: %s\n' "$*" >&2; exit 1; }
+# A command that fails after pause_sync would leave dev without auto-sync: say how to get it back.
+trap 'printf "[fault] ERROR: command failed; if auto-sync is paused, run: %s restore\n" "$0" >&2' ERR
 log() { printf '[fault] %s\n' "$*"; }
 
 context="$(kubectl config current-context)"
@@ -42,9 +46,8 @@ pause_sync() {
 }
 
 restore() {
-  # Same policy as deploy/argocd/boutique-dev.yaml.
-  kubectl patch application "${APP}" -n argocd --type merge \
-    -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}' >/dev/null
+  # Re-apply the Application from Git, so the sync policy comes from deploy/argocd/boutique-dev.yaml and cannot drift.
+  kubectl apply -f "${REPO_ROOT}/deploy/argocd/boutique-dev.yaml" >/dev/null
   log "auto-sync of ${APP} restored: Argo CD now brings ${NS} back to Git"
   log "follow it with: kubectl get application ${APP} -n argocd -w   then   scripts/smoke-test.sh ${NS}"
 }
@@ -66,10 +69,13 @@ inject() {
       kubectl patch service cartservice -n "${NS}" --type merge -p '{"spec":{"selector":{"app":"cart-service"}}}' >/dev/null
       log "cartservice Service selector set to app=cart-service (the pods have app=cartservice)" ;;
     netpol)
-      pause_sync
-      # ingress[0].from[0] is the frontend pod selector (check it before removing it)
+      # ingress[0].from[0] must be the frontend pod selector, and not the only source:
+      # an empty "from" list would mean "allow from everyone", the opposite of the fault.
       first="$(kubectl get networkpolicy productcatalogservice -n "${NS}" -o jsonpath='{.spec.ingress[0].from[0].podSelector.matchLabels.app}')"
-      [[ "${first}" == "frontend" ]] || die "unexpected NetworkPolicy layout (ingress[0].from[0] is '${first}'), not changing it"
+      second="$(kubectl get networkpolicy productcatalogservice -n "${NS}" -o jsonpath='{.spec.ingress[0].from[1]}')"
+      [[ "${first}" == "frontend" && -n "${second}" ]] \
+        || die "unexpected NetworkPolicy layout (ingress[0].from[0] is '${first}'; already injected?), nothing changed"
+      pause_sync
       kubectl patch networkpolicy productcatalogservice -n "${NS}" --type json \
         -p '[{"op":"remove","path":"/spec/ingress/0/from/0"}]' >/dev/null
       log "NetworkPolicy productcatalogservice no longer allows ingress from app=frontend" ;;
