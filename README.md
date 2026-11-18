@@ -64,7 +64,7 @@ flowchart LR
 - **UI di Argo CD**: http://argocd.localhost/, utente `admin`, password stampata da `./scripts/argocd-password.sh` (resta solo nel cluster).
 
 ## Avvio rapido (locale, kind)
-Prerequisiti: Docker, kind v0.33.0, kubectl v1.37.x, Helm v4.3.x, **kubeseal v0.41.2**, openssl.
+Prerequisiti: Docker, kind v0.33.0, kubectl v1.37.x, Helm v4.3.x, **kubeseal v0.41.2**, openssl; `jq` per alcuni comandi del [runbook](docs/RUNBOOK.md).
 Porte 80 e 443 libere su `localhost`. Installazione di kubeseal con verifica del checksum ufficiale:
 ```bash
 curl -sLO https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.41.2/kubeseal-0.41.2-linux-amd64.tar.gz
