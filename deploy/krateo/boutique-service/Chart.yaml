@@ -1,0 +1,10 @@
+apiVersion: v2
+name: boutique-service
+description: >
+  Golden path for a new Online Boutique environment owned by an internal team.
+  It creates the team namespace and one Argo CD Application that deploys helm-chart/ from this repository
+  with the platform defaults (deploy/values-common.yaml) and only the parameters a consumer may choose.
+  Registered in Krateo with deploy/krateo/compositiondefinition.yaml (phase 6, R-20).
+type: application
+version: 0.1.0
+appVersion: "v0.10.7"

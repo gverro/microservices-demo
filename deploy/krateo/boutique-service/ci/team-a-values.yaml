@@ -1,0 +1,13 @@
+# Test values for CI (helm lint, helm template | kubeconform): same request as deploy/krateo/examples/team-a.yaml.
+owner: team-a
+tier: standard
+environment: dev
+namespace: team-a
+ingress:
+  host: team-a.boutique.localhost
+resources:
+  frontendReplicas: 1
+loadGenerator: false
+source:
+  repoURL: https://github.com/gverro/microservices-demo.git
+  revision: main

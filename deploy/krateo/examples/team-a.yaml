@@ -1,0 +1,20 @@
+# What a consumer team writes (or fills in a portal form) to get its own Online Boutique environment.
+# Prerequisite done by the platform: deploy/secrets/team-a/redis-auth.sealed.yaml (scripts/seal-secrets.sh team-a).
+apiVersion: composition.krateo.io/v0-1-0
+kind: BoutiqueService
+metadata:
+  name: team-a
+  namespace: boutique-catalog
+spec:
+  owner: team-a
+  tier: standard
+  environment: dev
+  namespace: team-a
+  ingress:
+    host: team-a.boutique.localhost
+  resources:
+    frontendReplicas: 1
+  loadGenerator: false
+  source:
+    repoURL: https://github.com/gverro/microservices-demo.git
+    revision: main
