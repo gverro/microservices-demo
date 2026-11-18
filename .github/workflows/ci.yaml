@@ -83,11 +83,23 @@ jobs:
           chart=deploy/krateo/boutique-service
           helm template team-a "${chart}" -n boutique-catalog -f "${chart}/ci/team-a-values.yaml" \
             | kubeconform -strict -summary -schema-location default -schema-location "${CRD_SCHEMAS}"
-          kubeconform -strict -summary -schema-location default -schema-location "${CRD_SCHEMAS}" deploy/krateo/appproject-tenants.yaml
+          kubeconform -strict -summary -schema-location default -schema-location "${CRD_SCHEMAS}" \
+            deploy/krateo/appproject-tenants.yaml deploy/krateo/dns-ndots-policy.yaml
+          # Krateo pulls the version written in the CompositionDefinition: it must be the chart in this commit.
+          chart_version="$(yq '.version' "${chart}/Chart.yaml")"
+          cd_version="$(yq '.spec.chart.version' deploy/krateo/compositiondefinition.yaml)"
+          if [[ "${chart_version}" != "${cd_version}" ]]; then
+            echo "::error::Chart.yaml is ${chart_version} but compositiondefinition.yaml pulls ${cd_version}"; exit 1
+          fi
+          echo "chart and CompositionDefinition both at ${chart_version}: ok"
           if helm template team-a "${chart}" -f "${chart}/ci/team-a-values.yaml" --set namespace=dev >/dev/null 2>&1; then
             echo "::error::values.schema.json accepted namespace=dev (must start with team-)"; exit 1
           fi
           echo "schema rejects namespace=dev: ok"
+          if helm template team-a "${chart}" -f "${chart}/ci/team-a-values.yaml" --set ingress.host=dev.boutique.localhost >/dev/null 2>&1; then
+            echo "::error::the chart accepted the dev host for a team environment"; exit 1
+          fi
+          echo "chart rejects a host outside the team namespace: ok"
 
   test:
     name: test (go vet, go test)

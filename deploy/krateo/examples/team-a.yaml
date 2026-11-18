@@ -1,6 +1,6 @@
 # What a consumer team writes (or fills in a portal form) to get its own Online Boutique environment.
 # Prerequisite done by the platform: deploy/secrets/team-a/redis-auth.sealed.yaml (scripts/seal-secrets.sh team-a).
-apiVersion: composition.krateo.io/v0-1-0
+apiVersion: composition.krateo.io/v0-1-1
 kind: BoutiqueService
 metadata:
   name: team-a

@@ -45,6 +45,7 @@ tranne due file di workflow CI). Regola: si modifica l'upstream solo se serve a 
 | 37 | `scripts/krateo-poc.sh` (nuovo) | Aggiunto (F6) | PoC opzionale: controlla l'host (inotify, D-32), installa il core-provider 1.0.0 e registra il golden path; fuori da `install.sh` (D-17) | §5 |
 | 38 | `.github/workflows/ci.yaml` | Modificato (F6) | Lint, render e test negativo dello schema del golden path; job `publish-chart` che pubblica il chart su GHCR solo da `main` e solo se la versione non esiste | §4.4, §5 |
 | 39 | `docs/KRATEO.md` (nuovo) | Aggiunto (F6) | Valutazione di Krateo (golden path, parametri, orchestrazione, benefici/prerequisiti/limiti/rischi, adozione) ed esiti della PoC | §5 |
+| 40 | `deploy/krateo/boutique-service/` 0.1.1, `compositiondefinition.yaml`, `examples/team-a.yaml`, `scripts/krateo-poc.sh`, `ci.yaml`, docs | Modificato (F6, revisione) | Host legato al namespace del team, almeno 2 repliche in prod, revisione Git sempre stringa; script rilanciabile dopo un riavvio, attesa della nuova versione della CRD, avviso se il SealedSecret di team-a non si decifra; CI con controllo delle versioni, policy DNS in kubeconform e test dell'host; limiti multi-tenant e passi per un fork documentati | §5 |
 
 Codice applicativo (`src/`): fino alla F3 solo una riga del Dockerfile del frontend (#8); in F4 le metriche Prometheus del frontend (#26), attive solo con `METRICS_PORT`.
 Tutte le modifiche al chart sono **opzioni disattivate di default**: chi usa il chart come l'upstream ottiene lo stesso risultato.

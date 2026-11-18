@@ -1,7 +1,12 @@
 # One Argo CD Application per team environment: Argo CD stays the only component that applies the app,
 # so history, rollback and drift detection work as for dev and prod (deploy/argocd/boutique-<env>.yaml).
+{{- /* Cross-field rules (a CRD schema has no if/then): the host belongs to the team namespace, so a team cannot take
+       dev.boutique.localhost or another team's host; prod and tier critical keep at least two frontend replicas, as values-prod.yaml does. */ -}}
+{{- if not (hasPrefix (printf "%s." .Values.namespace) .Values.ingress.host) }}
+{{- fail (printf "ingress.host must start with the namespace: %s.boutique.localhost (got %s)" .Values.namespace .Values.ingress.host) }}
+{{- end }}
 {{- $replicas := int .Values.resources.frontendReplicas }}
-{{- if and (eq .Values.tier "critical") (lt $replicas 2) }}{{ $replicas = 2 }}{{ end }}
+{{- if and (or (eq .Values.tier "critical") (eq .Values.environment "prod")) (lt $replicas 2) }}{{ $replicas = 2 }}{{ end }}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -18,8 +23,8 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.namespace }}
   sources:
-    - repoURL: {{ .Values.source.repoURL }}
-      targetRevision: {{ .Values.source.revision }}
+    - repoURL: {{ .Values.source.repoURL | quote }}
+      targetRevision: {{ .Values.source.revision | quote }}
       path: helm-chart
       helm:
         releaseName: onlineboutique
@@ -31,12 +36,12 @@ spec:
           frontend:
             replicas: {{ $replicas }}
             ingress:
-              host: {{ .Values.ingress.host }}
+              host: {{ .Values.ingress.host | quote }}
           loadGenerator:
             create: {{ .Values.loadGenerator }}
     # Same repository, named "repo" for the value files above; its path holds the namespace's SealedSecret (redis-auth).
-    - repoURL: {{ .Values.source.repoURL }}
-      targetRevision: {{ .Values.source.revision }}
+    - repoURL: {{ .Values.source.repoURL | quote }}
+      targetRevision: {{ .Values.source.revision | quote }}
       ref: repo
       path: deploy/secrets/{{ .Values.namespace }}
   {{- if and (eq .Values.environment "dev") (not (include "boutique-service.paused" .)) }}
