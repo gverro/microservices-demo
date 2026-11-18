@@ -38,6 +38,7 @@ l'equivalenza senza un vantaggio chiaro, mentre Online Boutique è la scelta ind
 - [Modifiche rispetto all'upstream](docs/CHANGES.md)
 - [Sicurezza e limiti residui](docs/SECURITY.md)
 - [Runbook: verifica, troubleshooting, rollback](docs/RUNBOOK.md)
+- [Krateo: valutazione e PoC minima](docs/KRATEO.md)
 
 ## CI/CD e GitOps
 ```mermaid
@@ -96,8 +97,19 @@ Dettagli in [SECURITY](docs/SECURITY.md).
 | Sincronizzazione Argo CD | automatica (`prune`, `selfHeal`) | manuale (promozione) |
 | Comune | stessa immagine `ghcr.io/gverro/microservices-demo/frontend:v0.10.7-kt.2`, NetworkPolicy, seccomp, Redis con password, RBAC minimo, startupProbe, metriche su `:9090` raccolte da Prometheus | |
 
+**Krateo (PoC opzionale, [KRATEO](docs/KRATEO.md)).** Installa solo il motore di Krateo e registra il golden path `BoutiqueService`:
+un team ottiene un ambiente completo, consegnato da Argo CD, con una richiesta di circa 20 righe. Serve circa 0,4 GiB di RAM in più per il motore e circa 0,35 GiB per ogni ambiente.
+Prerequisito: `fs.inotify.max_user_instances` almeno 512 (default 128 su Ubuntu/WSL; [kind known issues](https://kind.sigs.k8s.io/docs/user/known-issues/)):
+```bash
+sudo sysctl fs.inotify.max_user_instances=512
+echo 'fs.inotify.max_user_instances = 512' | sudo tee /etc/sysctl.d/99-kind-inotify.conf   # persistente
+./scripts/krateo-poc.sh                                     # dopo install.sh
+kubectl apply -f deploy/krateo/examples/team-a.yaml         # poi http://team-a.boutique.localhost/
+kubectl delete boutiqueservice team-a -n boutique-catalog   # rimuove l'ambiente
+```
+
 Struttura: `helm-chart/` (chart upstream con opzioni aggiunte), `deploy/values-common.yaml` + `values-<env>.yaml`,
-`deploy/secrets/<env>/` (SealedSecret), `deploy/platform/` (values di Traefik, Argo CD e kube-prometheus-stack; `dashboards/` = dashboard Grafana come codice), `deploy/argocd/` (AppProject e Application). Dettagli in [CHANGES](docs/CHANGES.md) e [SECURITY](docs/SECURITY.md).
+`deploy/secrets/<env>/` (SealedSecret), `deploy/platform/` (values di Traefik, Argo CD e kube-prometheus-stack; `dashboards/` = dashboard Grafana come codice), `deploy/argocd/` (AppProject e Application), `deploy/krateo/` (golden path Krateo, AppProject `tenants`, policy DNS, esempio di richiesta). Dettagli in [CHANGES](docs/CHANGES.md) e [SECURITY](docs/SECURITY.md).
 
 ### Build ed esecuzione locale del frontend (unico servizio ricompilato)
 ```bash

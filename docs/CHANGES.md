@@ -39,6 +39,12 @@ tranne due file di workflow CI). Regola: si modifica l'upstream solo se serve a 
 | 31 | `scripts/smoke-test.sh` (nuovo) | Aggiunto (F5) | Verifica di un ambiente in un comando, in sola lettura: salute in Argo CD, Deployment pronti e rollout completo, endpoint pronti di ogni Service, HTTP dall'Ingress; exit 1 se qualcosa fallisce | §4.7, §8 |
 | 32 | `scripts/fault.sh` (nuovo) | Aggiunto (F5) | Quattro guasti ripetibili in dev (immagine, configurazione, Service senza endpoint, NetworkPolicy) con sync automatica sospesa e ripristino da Git (D-30) | §4.7, §7 |
 | 33 | `docs/RUNBOOK.md` (nuovo) | Aggiunto (F5) | Runbook: verifica, albero dei sintomi, 5 scenari con output reali, rollback eseguiti con tempi misurati (D-31), casi reali, escalation | §4.7, §8 |
+| 34 | `deploy/krateo/boutique-service/` (nuovo) | Aggiunto (F6) | Golden path per Krateo: chart piccolo con `values.schema.json` (solo i parametri del team) che crea il namespace del team e un'Application di Argo CD verso `helm-chart/` (D-34) | §5 |
+| 35 | `deploy/krateo/appproject-tenants.yaml`, `compositiondefinition.yaml`, `examples/team-a.yaml`, `deploy/secrets/team-a/` (nuovi) | Aggiunto (F6) | Recinto di Argo CD per i namespace `team-*`, registrazione in Krateo, richiesta di esempio, password di Redis sigillata per `team-a` | §5 |
+| 36 | `deploy/krateo/dns-ndots-policy.yaml` (nuovo) | Aggiunto (F6) | `ndots:1` per i pod di Krateo che scaricano chart da ghcr.io (D-33) | §5 |
+| 37 | `scripts/krateo-poc.sh` (nuovo) | Aggiunto (F6) | PoC opzionale: controlla l'host (inotify, D-32), installa il core-provider 1.0.0 e registra il golden path; fuori da `install.sh` (D-17) | §5 |
+| 38 | `.github/workflows/ci.yaml` | Modificato (F6) | Lint, render e test negativo dello schema del golden path; job `publish-chart` che pubblica il chart su GHCR solo da `main` e solo se la versione non esiste | §4.4, §5 |
+| 39 | `docs/KRATEO.md` (nuovo) | Aggiunto (F6) | Valutazione di Krateo (golden path, parametri, orchestrazione, benefici/prerequisiti/limiti/rischi, adozione) ed esiti della PoC | §5 |
 
 Codice applicativo (`src/`): fino alla F3 solo una riga del Dockerfile del frontend (#8); in F4 le metriche Prometheus del frontend (#26), attive solo con `METRICS_PORT`.
 Tutte le modifiche al chart sono **opzioni disattivate di default**: chi usa il chart come l'upstream ottiene lo stesso risultato.
