@@ -1,5 +1,5 @@
 # Registers the golden path chart in Krateo: the core-provider reads its values.schema.json,
-# generates the CRD composition.krateo.io/v0-1-0, kind BoutiqueService, and starts a dedicated controller (CDC).
+# generates the CRD composition.krateo.io/v0-1-1 (chart version with dashes), kind BoutiqueService, and starts a dedicated controller (CDC).
 # The chart is published as an OCI artifact on GHCR (public); version pinned to the chart in deploy/krateo/boutique-service.
 apiVersion: core.krateo.io/v1alpha1
 kind: CompositionDefinition
@@ -9,4 +9,4 @@ metadata:
 spec:
   chart:
     url: oci://ghcr.io/gverro/microservices-demo/charts/boutique-service
-    version: "0.1.0"
+    version: "0.1.1"

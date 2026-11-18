@@ -5,7 +5,7 @@
 # Team that owns the environment (namespace label, Application label).
 owner: ""
 
-# Service level: "critical" guarantees at least two frontend replicas (no downtime on rolling updates).
+# Service level: "critical" guarantees at least two frontend replicas (no downtime on rolling updates); prod always does.
 tier: standard
 
 # Baseline settings and delivery policy: dev = deploy/values-dev.yaml + automatic sync,
@@ -16,7 +16,7 @@ environment: dev
 namespace: ""
 
 ingress:
-  # Public host name served by Traefik.
+  # Public host name served by Traefik; must be <namespace>.boutique.localhost (one host per team, never dev or prod).
   host: ""
 
 resources:

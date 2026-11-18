@@ -12,7 +12,7 @@
     },
     "tier": {
       "type": "string",
-      "description": "Service level: critical guarantees at least two frontend replicas.",
+      "description": "Service level: critical guarantees at least two frontend replicas (prod always has at least two).",
       "enum": ["standard", "critical"],
       "default": "standard"
     },
@@ -34,7 +34,7 @@
       "properties": {
         "host": {
           "type": "string",
-          "description": "Host name served by Traefik, under boutique.localhost (e.g. team-a.boutique.localhost).",
+          "description": "Host name served by Traefik: <namespace>.boutique.localhost (e.g. team-a.boutique.localhost); checked by the chart.",
           "pattern": "^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?\\.boutique\\.localhost$"
         }
       }
@@ -46,7 +46,7 @@
       "properties": {
         "frontendReplicas": {
           "type": "integer",
-          "description": "Frontend replicas (1-3); tier critical raises it to at least 2.",
+          "description": "Frontend replicas (1-3); tier critical and environment prod raise it to at least 2.",
           "minimum": 1,
           "maximum": 3,
           "default": 1
