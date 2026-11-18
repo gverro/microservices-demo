@@ -43,7 +43,7 @@ controller:
 
 repoServer:
   # The repo server is the component that reaches GitHub. With the default ndots:5 a name like github.com is first
-  # tried with the search domains inherited from the host network; on some home routers (here *.homenet.telecomitalia.it)
+  # tried with the search domains inherited from the host network; on some home routers (as on the network used here)
   # those answer 127.0.0.1, so git fails with "dial tcp 127.0.0.1:443: connection refused". ndots:1 resolves names
   # with a dot as absolute first; short in-cluster names (argocd-redis) still use the search list.
   dnsConfig:
