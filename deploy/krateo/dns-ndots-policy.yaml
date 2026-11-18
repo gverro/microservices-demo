@@ -1,0 +1,49 @@
+# ndots:1 for every pod created in the namespaces labelled boutique.kiratech.local/dns-ndots-1=true
+# (krateo-system and boutique-catalog, labelled by scripts/krateo-poc.sh).
+# Why: Krateo pulls charts from the Internet (ghcr.io). With the default ndots:5 a name such as ghcr.io is first tried
+# with the search domains inherited from the host network; some home routers answer 127.0.0.1 for those, and the pull
+# fails with "dial tcp 127.0.0.1:443: connection refused". Same cause as D-24 (Argo CD repo-server), but here the pods
+# are also created at runtime (one controller per CompositionDefinition) and the Krateo chart has no dnsConfig value,
+# so the fix is an admission policy instead of a Helm value. Native API, stable since Kubernetes 1.36.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: dns-ndots-1
+spec:
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  matchConditions:
+    - name: no-dns-config-yet
+      expression: "!has(object.spec.dnsConfig)"
+  failurePolicy: Fail
+  reinvocationPolicy: Never
+  # JSONPatch, not ApplyConfiguration: dnsConfig.options is an atomic list, which apply configurations may not change
+  # ("may not mutate atomic arrays, maps or structs: .spec.dnsConfig.options"). The match condition guarantees there is
+  # no dnsConfig yet, so "add" never overwrites a pod's own DNS settings.
+  mutations:
+    - patchType: JSONPatch
+      jsonPatch:
+        expression: >
+          [
+            JSONPatch{
+              op: "add", path: "/spec/dnsConfig",
+              value: Object.spec.dnsConfig{
+                options: [Object.spec.dnsConfig.options{name: "ndots", value: "1"}]
+              }
+            }
+          ]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: dns-ndots-1
+spec:
+  policyName: dns-ndots-1
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        boutique.kiratech.local/dns-ndots-1: "true"
