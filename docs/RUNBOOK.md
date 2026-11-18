@@ -1,7 +1,7 @@
 # Runbook operativo: verifica, troubleshooting, rollback
 
 Ambito: Online Boutique su kind (`kind-boutique`), ambienti `dev` e `prod`, consegnati da Argo CD a partire da `main` (R-17, R-18, R-19).
-Ogni comando di questo documento è stato eseguito almeno una volta su questo cluster (novembre 2026, Kubernetes `v1.37.0`, Argo CD `v3.6.1`);
+Ogni comando di questo documento, salvo dove è indicato "non eseguito", è stato eseguito almeno una volta su questo cluster (novembre 2026, Kubernetes `v1.37.0`, Argo CD `v3.6.1`);
 gli output riportati sono reali e ridotti alle righe utili.
 
 Regole valide per tutto il documento:
@@ -99,7 +99,7 @@ Gli scenari S1-S4 si riproducono in `dev` con `scripts/fault.sh` (mai in prod):
 scripts/fault.sh list
 scripts/fault.sh <scenario> inject     # sospende la sync automatica di boutique-dev e rompe una risorsa gestita da Argo CD
 scripts/smoke-test.sh dev              # FAIL atteso
-scripts/fault.sh restore               # sync automatica di nuovo attiva: Argo CD riporta dev a Git
+scripts/fault.sh restore               # riapplica l'Application da Git: sync automatica attiva, Argo CD riporta dev a Git
 kubectl rollout status deploy/frontend -n dev && scripts/smoke-test.sh dev
 ```
 
@@ -111,7 +111,7 @@ S1 bad-image;tag dell'immagine inesistente;nuovo ImagePullBackOff, vecchio Runni
 S2 bad-config;indirizzo del catalogo sbagliato;Running e Ready;presenti;500;log "could not retrieve product";correggere la variabile in Git
 S3 no-endpoints;selettore del Service sbagliato;Running e Ready;vuoti;500 alle connessioni nuove;EndpointSlice vuoto;allineare selettore e label in Git
 S4 netpol;NetworkPolicy senza il permesso dal frontend;Running e Ready;presenti;500 alle connessioni nuove;i/o timeout con endpoint presenti;ripristinare la policy da Git
-S5 rilascio cattivo;memoria 4Mi invece di 64Mi (commit su main);nuovo CrashLoopBackOff, vecchio Running;presenti;200 (serve il pod vecchio);evento "container init was OOM-killed";git revert (sezione 4)
+S5 rilascio cattivo;memoria request/limit 4Mi invece di 64Mi/128Mi (commit su main);nuovo CrashLoopBackOff, vecchio Running;presenti;200 (serve il pod vecchio);evento "container init was OOM-killed";git revert (sezione 4)
 ```
 
 ### S1 — Immagine inesistente (`ImagePullBackOff`)
@@ -288,7 +288,7 @@ Prova in dev con il rilascio cattivo ancora in `main` (17/11):
 ```
 $ kubectl rollout undo deploy/frontend -n dev            # 10:00:37
 Warning: … Rolling back will not update the kubectl.kubernetes.io/last-applied-configuration annotation …
-deployment.apps/frontend rolled back                     # memoria di nuovo 128Mi
+deployment.apps/frontend rolled back                     # limit di memoria di nuovo 128Mi
 $ kubectl get application boutique-dev -n argocd -o jsonpath='{.status.operationState.operation.initiatedBy} {.status.operationState.startedAt}'
 {"automated":true} 2026-11-17T10:00:45Z                  # 8 s dopo: selfHeal rimette 4Mi, il pod rotto torna
 ```
