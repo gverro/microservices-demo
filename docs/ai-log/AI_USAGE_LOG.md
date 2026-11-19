@@ -495,3 +495,45 @@ Strumento usato finora: **Claude Code** (modello Claude Opus 5.5) in WSL2.
 - **Accettato / modificato / scartato**: piano accettato da Gabriele così com'è; scelte: clean-room test con cancellazione del cluster, log grezzo pubblicato come appendice, passo 11 = AI-019.
 - **Verifica**: `kubectl get applications -n argocd` (Synced/Healthy), `kubectl get pods -A` (47 Running), `docker stats` (5,62/9,7 GiB), `gh pr list` (nessuna aperta).
 - **Valore**: le lacune di consegna sono emerse prima di scrivere; il rischio principale (README mai seguito da zero dopo F4-F6) è diventato un passo esplicito.
+
+### AI-037 — F7: AI_USAGE, registro pubblicato, guida della demo e README completo
+- **Data / Fase / Ambito**: 19/11/2026 · F7 · Documentazione + Governance
+- **Strumento**: Claude Code (Opus 5.5).
+- **Problema**: R-22 (sezione AI nel deliverable), R-25 (README con test e demo), comandi della demo per chi riceve il repo.
+- **Approccio**: lettura completa del registro e della configurazione AI; sintesi per i 5 punti del §6; comandi nuovi della demo (passi 1, 2, 5, 11) eseguiti sul cluster
+  prima di scriverli; controlli della CI rieseguiti in locale; grep privacy e controllo automatico di link e ancore prima del commit.
+- **Output**: `docs/AI_USAGE.md`, `docs/ai-log/AI_USAGE_LOG.md` (dominio del router oscurato), `docs/DEMO.md`, README con prerequisiti/Test/Demo, CHANGES #42-#44; PR #20.
+- **Accettato / modificato / scartato**: **errori dell'AI corretti prima del commit**: conteggi sbagliati (10 casi dichiarati, 9 in tabella; "una revisione per fase"),
+  "0 alti aperti" falso per F0, frase non verificabile sul tempo risparmiato, e **due citazioni di prompt inventate** in un elenco di "prompt reali dal registro".
+  Scelta: DEMO.md unica fonte dei comandi, la checklist della workspace rimanda lì.
+- **Verifica**: shellcheck, helm lint, kubeconform 53/50/6, `go test -race` in container, smoke dev/prod OK, comandi della demo eseguiti con l'esito scritto, grep privacy exit 1.
+- **Valore**: i documenti di consegna sono legati a voci e comandi; l'errore più grave (citazioni inventate) è proprio il tipo di "plausibile ma falso" che il §6.5 chiede di intercettare.
+- **Limiti**: la sintesi è scritta dalla stessa AI che ha scritto il registro; la rilettura di Gabriele e il `revisore` (passo 7) sono il controllo indipendente.
+
+
+### AI-038 — F7: clean-room test del README (cluster ricreato da zero)
+- **Data / Fase / Ambito**: 19/11/2026 · F7 · Operations + Documentazione
+- **Strumento**: Claude Code (Opus 5.5).
+- **Problema**: il README non era mai stato seguito da zero dopo F4-F6; R-25 chiede che porti un estraneo da un clone a una piattaforma funzionante.
+- **Approccio**: clone nuovo di `main`, `kind delete cluster` (confermato da Gabriele), solo comandi del README: `install.sh`, `krateo-poc.sh`, richiesta `team-a`;
+  controlli dopo ogni pezzo (Applications, pod, HTTP, riavvii). Interrotto su richiesta di Gabriele (PC rallentato) senza processi residui, ripreso dopo ~3,5 h.
+- **Output**: installazione rc=0 in 1391 s, Krateo rc=0 in 509 s, `team-a` Healthy in ~64 s con 3 pagine 200, cancellazione pulita; PR #21 con durata misurata
+  (12-23 min invece di ~10) e nota sul primo smoke test.
+- **Accettato / modificato / scartato**: il primo smoke di prod con `2 FAIL` è rimasto senza dettagli perché l'AI aveva salvato solo l'ultima riga dell'output
+  (errore di metodo: le evidenze vanno salvate intere); causa documentata come IPOTESI. Il kill del repo-server da liveness è accettato come limite, non corretto.
+- **Verifica**: `kubectl get applications -n argocd`, `kubectl get pods -A`, `curl` sui 4 host e su `team-a.boutique.localhost`, `kubectl get boutiqueservice`.
+- **Valore**: la stima dei tempi nella demo era sbagliata di 2x: scoperta prima del colloquio, non durante.
+
+### AI-039 — Revisione indipendente di fine F7
+- **Data / Fase / Ambito**: 19/11/2026 · F7 · Governance + Documentazione
+- **Strumento**: Claude Code (Opus 5.5), subagent `revisore` in sola lettura (contesto separato).
+- **Problema**: controllare che i documenti di consegna (AI_USAGE, registro pubblicato, DEMO, README, matrice dei requisiti) dicano solo cose vere e coerenti.
+- **Approccio**: il revisore ha confrontato AI_USAGE con le voci del registro, rifatto il diff dall'upstream, cercato il dominio anche nella history Git
+  (`git log -S`), eseguito in sola lettura i comandi della demo (curl, getent, dry-run, smoke test, history di prod).
+- **Output**: 0 rilievi alti, 7 medi, 13 bassi. I più importanti: il dominio del router resta nella history di due commit (la frase "nessun dato nel repo" era vera solo per i file);
+  il clean-room era stato fatto **con** il backup della chiave, quindi non è il percorso di un estraneo senza fork; tempi della PoC Krateo incoerenti (~4 min contro 509 s misurati);
+  "ogni comando eseguito" falso per i passi 7 e 9 della demo; `gh pr checks --watch` subito dopo `gh pr create` può non trovare la CI; passo 10 senza il "se/quando adottare";
+  conteggi per ambito di R-21 senza regola dichiarata.
+- **Accettato / modificato / scartato**: tutti i rilievi corretti nei documenti. Il dominio nella history **non** viene tolto (servirebbe un force push, vietato): dichiarato come limite in AI_USAGE §3.5.
+- **Verifica**: correzioni rilette contro i rilievi; grep privacy sul registro ricopiato; CI della PR.
+- **Valore**: due affermazioni facili da contestare al colloquio (privacy, clean-room "da estraneo") ridimensionate prima della consegna; un rischio pratico per la demo dal vivo (`--watch` senza check) rimosso.

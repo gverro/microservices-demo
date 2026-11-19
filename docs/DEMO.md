@@ -2,6 +2,8 @@
 
 Guida per eseguire la demo dal vivo con comandi da copiare e incollare. Tutti i comandi si lanciano nel terminale (WSL Ubuntu)
 **dalla radice del repo**; nessun comando richiede di sostituire parti. Prerequisiti e installazione: [README](../README.md#avvio-rapido-locale-kind).
+La guida presuppone questo fork (`gverro/microservices-demo`) e la chiave di Sealed Secrets dell'autore: su un altro fork sostituire `gverro`
+e seguire il README, paragrafo "Secret su un clone nuovo", altrimenti il carrello (passo 5) e l'ambiente del passo 10 non hanno la password di Redis.
 
 ```bash
 cd ~/projects/microservices-demo    # o la cartella in cui hai clonato il repo
@@ -43,7 +45,7 @@ Se un indirizzo risponde ancora 404 o 000 dopo 5 minuti: `kubectl get pods -A | 
 Se non risponde nemmeno `kubectl` (connection refused), il cluster è fermo. In WSL: `docker ps` deve mostrare `boutique-control-plane`;
 se manca, `docker start boutique-control-plane`; se `docker ps` stesso dà errore, Docker non è avviato: `sudo service docker start`.
 
-Altre verifiche da fare prima (una volta, ~5 minuti):
+Altre verifiche da fare prima (una volta; 5-10 minuti se la PoC Krateo va installata):
 ```bash
 ./scripts/smoke-test.sh dev && ./scripts/smoke-test.sh prod     # RESULT: OK per entrambi
 ./scripts/krateo-poc.sh                                            # serve al passo 10: finisce con "boutique-service True True"
@@ -77,7 +79,7 @@ Il tour si fa sul repo già installato (stesso contenuto di `main`):
 
 | Cartella | Cosa contiene | Da dove viene |
 |---|---|---|
-| `src/` | codice degli 11 microservizi (Go, C#, Node.js, Python, Java) | upstream; modificato solo il frontend (metriche) e una riga del suo Dockerfile |
+| `src/` | codice dei 10 microservizi applicativi e del load generator (Go, C#, Node.js, Python, Java; `shoppingassistantservice` è upstream e non usato) | upstream; modificato solo il frontend (metriche) e una riga del suo Dockerfile |
 | `helm-chart/` | chart Helm upstream con opzioni aggiunte, spente di default | upstream + modifiche ([CHANGES](CHANGES.md)) |
 | `deploy/` | values per ambiente, piattaforma (Traefik, Argo CD, monitoring), SealedSecret, Application di Argo CD, golden path Krateo | aggiunto |
 | `scripts/` | installazione, secret, smoke test, guasti, PoC Krateo | aggiunto |
@@ -109,7 +111,7 @@ e pubblicata dalla CI solo da `main` e solo se il tag non esiste (tag immutabili
 # 0. Sono sul cluster giusto? Deve rispondere: kind-boutique
 kubectl config current-context
 
-# 1. Installa (o riallinea) tutta la piattaforma: kind, Traefik, Sealed Secrets, Argo CD, Applications. 12-23 minuti da zero, ~35 s se esiste già.
+# 1. Installa (o riallinea) tutta la piattaforma: kind, Traefik, Sealed Secrets, monitoring, Argo CD, Applications. 12-23 minuti da zero, ~35 s se esiste già.
 #    Se prod aspetta una promozione stampa "WARNING: prod: boutique-prod is OutOfSync: a promotion is pending": è normale (vedi §7b).
 #    Dalla F4 le probe hanno una startupProbe: durante l'avvio si vedono eventi "Startup probe failed", ma nessun riavvio.
 #    Se si ferma subito dopo "installing ..." con "etcdserver: request timed out": etcd lento su WSL, rilanciare lo stesso comando.
@@ -186,6 +188,7 @@ git push -u origin demo/banner-azure
 
 # 3. Pull request e merge (la CI parte da sola; merge quando è verde)
 gh pr create -R gverro/microservices-demo --base main --head demo/banner-azure --title "Demo: Azure banner" --body "GitOps demo"
+sleep 15   # la CI impiega qualche secondo a registrarsi: senza attesa --watch può rispondere "no checks reported"
 gh pr checks demo/banner-azure -R gverro/microservices-demo --watch
 gh pr merge demo/banner-azure -R gverro/microservices-demo --merge --delete-branch
 
@@ -215,13 +218,14 @@ kubectl get cm frontend-config -n dev -o jsonpath='{.data.ENV_PLATFORM}{"\n"}'  
 
 # prod non ha selfHeal: la modifica resta, ma Argo CD la mostra come OutOfSync (nella UI: risorsa gialla, scheda DIFF)
 kubectl scale deploy/frontend -n prod --replicas=3
-kubectl get application boutique-prod -n argocd     # OutOfSync; la Sync di §7b la riporta a 2 repliche
+kubectl get application boutique-prod -n argocd     # OutOfSync
+kubectl scale deploy/frontend -n prod --replicas=2   # rimettere il valore di Git (oppure una Sync come in §7b)
 ```
 
 ### 7d. Pipeline CI
 ```bash
 gh run list -R gverro/microservices-demo -w ci --limit 5     # ultimi run: completed success
-gh run view --web -R gverro/microservices-demo                # apre l'ultimo run nel browser
+gh run view "$(gh run list -R gverro/microservices-demo -w ci -L 1 --json databaseId -q '.[0].databaseId')" -R gverro/microservices-demo --web   # apre l'ultimo run nel browser
 ```
 Run di riferimento: verde https://github.com/gverro/microservices-demo/actions/runs/43267250772 ·
 rosso voluto (manifest rotto) https://github.com/gverro/microservices-demo/actions/runs/43269182026
@@ -268,6 +272,7 @@ git switch -c demo/revert-banner
 git revert --no-edit "$(git log --format=%H --no-merges -1 --grep 'Azure banner')"
 git push -u origin demo/revert-banner
 gh pr create -R gverro/microservices-demo --base main --head demo/revert-banner --title "Demo: revert the Azure banner" --body "Rollback demo"
+sleep 15
 gh pr checks demo/revert-banner -R gverro/microservices-demo --watch
 gh pr merge demo/revert-banner -R gverro/microservices-demo --merge --delete-branch
 
@@ -294,7 +299,7 @@ Perché non `kubectl rollout undo` (da dire, o mostrare in dev con un guasto att
 in prod crea un drift che il prossimo sync cancella. Il rollback che tiene è in Git.
 
 ## Passo 10 — Krateo: un team chiede un ambiente
-Prima del colloquio (una volta, ~4 minuti): `./scripts/krateo-poc.sh` deve finire con `boutique-service True True`.
+Prima del colloquio (una volta, 4-9 minuti la prima installazione, misurati 509 s da cluster nuovo): `./scripts/krateo-poc.sh` deve finire con `boutique-service True True`.
 Se si ferma su "fs.inotify.max_user_instances is 128": lanciare i due comandi `sudo` che stampa (D-32).
 Aprire `docs/KRATEO.md` §5 (diagramma) mentre si eseguono i comandi.
 ```bash
@@ -324,6 +329,8 @@ kubectl get ns team-a                                            # NotFound (dop
 ```
 Da dire: Krateo possiede la **richiesta** (namespace e Application), Argo CD possiede l'**app**; lo schema è il modulo del portale,
 che qui non è installato perché la piattaforma completa chiede 12 vCPU / 16 GiB. Rischio da citare: il core-provider ha di fatto permessi da cluster-admin.
+Se, quando e come adottarlo (§7.10): raccomandazione di adozione **graduale**: subito il solo motore come API self-service sopra Argo CD, il portale
+quando ci sono più team consumer e un cluster di piattaforma dimensionato ([KRATEO §1](KRATEO.md#1-in-sintesi) e [§11](KRATEO.md#11-percorso-di-adozione-proposto)).
 
 ## Passo 11 — Un caso concreto di uso dell'AI
 Caso: **Argo CD non raggiunge GitHub** (voce AI-019), scheda completa in [AI_USAGE §4](AI_USAGE.md#4-caso-esemplare-passo-11-della-demo-argo-cd-non-raggiunge-github).

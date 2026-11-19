@@ -199,7 +199,7 @@ Obiettivo: provare la catena Composition → CDC → Application → Argo CD →
 Eseguita il 18/11/2026 su kind (Kubernetes `v1.37.0`, Argo CD `v3.6.1`), core-provider `1.0.0`. Tutto VERIFICATO con i comandi riportati.
 
 ```bash
-./scripts/krateo-poc.sh                                    # una volta: policy DNS, core-provider, AppProject tenants, CompositionDefinition (~3-4 min la prima volta)
+./scripts/krateo-poc.sh                                    # una volta: policy DNS, core-provider, AppProject tenants, CompositionDefinition (4-9 min la prima volta: 509 s nel clean-room test)
 kubectl get compositiondefinition -n boutique-catalog      # boutique-service  READY True  SYNCED True
 kubectl apply -f deploy/krateo/examples/team-a.yaml        # il team chiede un ambiente
 kubectl get boutiqueservice -n boutique-catalog            # la richiesta, come risorsa Kubernetes

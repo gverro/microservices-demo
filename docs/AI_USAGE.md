@@ -3,7 +3,7 @@
 Questo documento risponde ai §6 e §8 della challenge: quali strumenti di AI ho usato, per quali problemi, con quale approccio,
 cosa ho accettato, modificato o scartato, come l'ho verificato, quali limiti ho trovato e che valore ne è venuto.
 È la sintesi del **registro completo** ([`ai-log/AI_USAGE_LOG.md`](ai-log/AI_USAGE_LOG.md)), scritto durante il lavoro, una voce
-per ogni contributo significativo (AI-001 … AI-0xx). Ogni affermazione qui sotto rimanda a una voce che contiene i dettagli.
+per ogni contributo significativo (AI-001 … AI-039). Ogni affermazione qui sotto rimanda a una voce che contiene i dettagli.
 
 Regola di fondo: **l'AI propone ed esegue, io approvo le scelte e le azioni rischiose, e niente viene dichiarato "funziona" senza
 un comando che lo dimostri**. Il registro riporta anche gli errori dell'AI, perché sono la prova che i controlli funzionano.
@@ -12,12 +12,12 @@ un comando che lo dimostri**. Il registro riporta anche gli errori dell'AI, perc
 
 | | |
 |---|---|
-| Strumento | **Claude Code** (CLI, modello Claude Opus 5.5) in WSL2, unico strumento AI usato. Accesso al web solo per leggere documentazione ufficiale e API di GitHub |
+| Strumento | **Claude Code** (CLI, modello Claude Opus 5.5) in WSL2, unico strumento AI usato. Accesso al web per documentazione ufficiale, API di GitHub e ricerche sulle versioni (da una di queste è emerso l'incidente di `trivy-action`, AI-018) |
 | Periodo | 10/11/2026 – consegna; registro con una voce per contributo |
 | Ambiti coperti (§6) | analisi, implementazione, operations e troubleshooting, documentazione e demo, governance: tutti con più voci (tabella §3) |
 | Casi di troubleshooting | 10, dal Docker installato via snap (AI-003) al DNS del router che risponde `127.0.0.1` (AI-019, AI-029, AI-033) |
-| Revisioni indipendenti | 8 giri su 7 fasi, a ogni chiusura (subagent `revisore` in sola lettura, contesto separato); la F3 ne ha avuti due |
-| Errori dell'AI registrati | 25, ognuno fermato da me, da uno strumento (shellcheck, test, CI) o da una prova reale (elenco al §5) |
+| Revisioni indipendenti | 9 giri su 8 fasi, a ogni chiusura (subagent `revisore` in sola lettura, contesto separato); la F3 ne ha avuti due |
+| Errori dell'AI registrati | 31, ognuno fermato da me, da uno strumento (shellcheck, test, CI) o da una prova reale (elenco al §5) |
 | Azioni lasciate all'umano | comandi `sudo`, merge su `main`, promozione e rollback di prod, cancellazione del cluster, password e chiavi |
 
 ## 2. Strumenti e configurazione
@@ -63,7 +63,7 @@ i flussi scritti a memoria (corretti) e la frase del README upstream sui "tassi 
 ### 3.2 Implementazione
 | Voce | Cosa | Dove l'AI ha accelerato | Dove è stato necessario correggere, semplificare o riscrivere |
 |---|---|---|---|
-| AI-007, AI-012 | Cluster kind e `install.sh` idempotente | Script, configurazione di kind, lease del control plane | shellcheck SC2155 corretto. Lo script falliva con il nodo fermo dopo un riavvio (trovato dal revisore, AI-010) |
+| AI-007, AI-012 | Cluster kind e `install.sh` idempotente | Script, configurazione di kind, lease del control plane | shellcheck SC2155 corretto. `cluster-up.sh` falliva con il nodo fermo dopo un riavvio (trovato dal revisore, AI-010) |
 | AI-015 | Chart dev/prod, Sealed Secrets, RBAC, NetworkPolicy | Opzioni del chart spente di default (render identico all'upstream) | Percorso "clone senza chiave" in un vicolo cieco (revisore). Misurando un rollout: prod **non** era senza disservizio (3 errori su 417) → `preStop` → 0 su 399 |
 | AI-018 | Pipeline CI (lint, kubeconform, test, build, Trivy, GHCR) | Workflow completo, prova negativa con un manifest rotto (run rosso voluto) | Actions fissate per SHA dopo l'incidente di `trivy-action` trovato con la ricerca sulle versioni; due scelte rimesse a me (`-copylocks=false`, soglia di Trivy) |
 | AI-024 | Metriche del frontend in Go + test, ServiceMonitor, dashboard | `metrics.go` con test, porta separata | Il test ha trovato un errore dell'AI (3 serie attese invece di 4) |
@@ -90,11 +90,13 @@ Niente riavvii "per vedere se passa".
 
 ### 3.4 Documentazione e demo
 - `README`, `ARCHITECTURE`, `SECURITY`, `RUNBOOK`, `KRATEO`, `CHANGES`, `DECISIONS` scritti con l'AI. **Ogni comando dei documenti è stato eseguito**
-  e l'output reale è stato riportato (AI-020, AI-030). Quando un comando è stato ricostruito dalla documentazione e non eseguito, è indicato.
-- Checklist della demo con comandi copia-incolla, provati durante le fasi (AI-020, AI-026, AI-030). Il passo §H è stato corretto dopo una prova:
+  e l'output reale è stato riportato (AI-020, AI-030), salvo le sequenze complete dei passi 7 e 9 di [DEMO.md](DEMO.md) (PR, merge, revert), che si provano nelle prove generali (tabella in fondo a DEMO.md). Quando un comando è stato ricostruito dalla documentazione e non eseguito, è indicato.
+- Checklist della demo con comandi copia-incolla, provati durante le fasi (AI-020, AI-026, AI-030). Un controllo del rollback (passo 9 di DEMO.md) è stato corretto dopo una prova:
   la `curl` colpiva il pod nei 5 s di `preStop`.
 - Le revisioni hanno trovato documentazione non allineata al codice: una frase falsa nel README (AI-021), un criterio scritto meglio di quanto
   fosse dimostrato (AI-027), un runbook che diceva "ogni comando eseguito" senza che lo fosse tutto (AI-031). Tutto corretto prima della chiusura delle fasi.
+- F7: questo documento, `DEMO.md` e il README completo (AI-037), poi un **clean-room test**: cluster cancellato e piattaforma ricreata da un clone nuovo con i soli comandi del README
+  (installazione 1391 s, Krateo 509 s, ambiente `team-a` Healthy). La stima "~10 minuti" era sbagliata di 2x ed è stata corretta prima del colloquio (AI-038).
 
 ### 3.5 Governance personale
 | Controllo richiesto (§6.5) | Come l'ho applicato | Prova |
@@ -104,7 +106,7 @@ Niente riavvii "per vedere se passa".
 | Non inserire secret nei prompt | Le password di Argo CD e Grafana le stampano script che lancio io; l'AI non le legge | AI-020: rifiutata una prova di login automatica che avrebbe usato la password. AI-014: export della chiave bloccato e rimesso a me |
 | Validare manifest e script prima di eseguirli | `helm lint`, `helm template \| kubeconform -strict`, `shellcheck`, `go test` in locale e in CI; `kubectl apply --dry-run=server` per i manifest Krateo | Run rosso voluto della CI con un manifest rotto (AI-018) |
 | Distinguere il plausibile dal funzionante | Le versioni si leggono dalle API ufficiali, non dalla memoria del modello; le diagnosi si confermano riproducendo il guasto | AI-005: kubectl fuori dalla version skew trovato così. AI-023: guasto riprodotto invece di supposto |
-| Privacy | Nessun dato personale nel repo pubblico: il dominio della rete di casa è sostituito da `<dominio-del-router>` (AI-031), anche nel registro pubblicato | `grep` prima della pubblicazione (vedi testa del registro) |
+| Privacy | Nessun dato personale nei file del repo pubblico: il dominio della rete di casa è sostituito da `<dominio-del-router>` (AI-031), anche nel registro pubblicato. **Limite**: il dominio (generico dell'ISP, non identifica una persona) resta nella history di due commit di F3; toglierlo richiederebbe di riscrivere la history con un force push, che le regole del progetto vietano | `grep` prima della pubblicazione (vedi testa del registro); `git log -S` per la history |
 
 ## 4. Caso esemplare (passo 11 della demo): Argo CD non raggiunge GitHub
 
@@ -156,8 +158,10 @@ L'AI ha sbagliato. Il punto è che ogni errore è stato fermato prima di arrivar
 | AI-033 | "Funziona" dichiarato a 48 s; memoria del motore misurata durante un crash | Eventi (9 riavvii); misura ripetuta |
 | AI-034 | `yq` tra i prerequisiti, non installato | Prova dello script |
 | AI-035 | Correzione dell'attesa dello script insufficiente | Prova reale dell'aggiornamento |
+| AI-037 | In questo documento: conteggi sbagliati (10 casi dichiarati, 9 in tabella; "una revisione per fase"), "0 rilievi alti aperti" falso, una frase non verificabile sul tempo risparmiato, **due citazioni di prompt inventate** | Rilettura riga per riga contro il registro, prima del commit |
+| AI-038 | Durata dell'installazione stimata ~10 min (reale 23); dell'unico smoke test fallito salvata solo l'ultima riga, causa rimasta IPOTESI | Clean-room test; la lacuna è dichiarata |
 
-In più ci sono i rilievi delle revisioni indipendenti (AI-006, AI-010, AI-015, AI-021 con due giri, AI-027, AI-031, AI-034). Ogni rilievo è stato corretto o, con una mia decisione, accettato come limite dichiarato. Esempio: in F0 alcuni `deny` sui permessi non sono stati applicati e resta la conferma `ask` (AI-006).
+In più ci sono i rilievi delle revisioni indipendenti (AI-006, AI-010, AI-015, AI-021 con due giri, AI-027, AI-031, AI-034, AI-039). Ogni rilievo è stato corretto o, con una mia decisione, accettato come limite dichiarato. Esempio: in F0 alcuni `deny` sui permessi non sono stati applicati e resta la conferma `ask` (AI-006).
 
 ## 6. Limiti riscontrati
 - **La memoria del modello invecchia.** Versioni e comportamenti dei tool vanno letti dalla documentazione ufficiale (es. kubectl fuori dalla skew in AI-005, ritiro di ingress-nginx in AI-011).
@@ -165,10 +169,11 @@ In più ci sono i rilievi delle revisioni indipendenti (AI-006, AI-010, AI-015, 
 - **Dimensionamento a occhio.** Limiti e stime di RAM sbagliati finché non sono state fatte misure (AI-025, AI-032).
 - **Una regola nota non basta.** La regola su `rm` era nota ed è stata violata (AI-009): la conferma umana sui comandi resta necessaria.
 - **La stessa AI scrive e verifica.** Mitigazione: revisore con un contesto separato e mia approvazione. Il revisore però è anch'esso un modello: i rilievi si verificano, non si accettano a scatola chiusa (AI-006).
-- **Lacune del registro.** Le prime voci (AI-002, AI-003, AI-004) non hanno il prompt registrato: lo dichiaro invece di ricostruirlo a memoria.
+- **Lacune del registro.** Diverse voci (es. AI-002, AI-003, AI-004, AI-009, AI-013, AI-014, AI-021, AI-024, AI-025) non hanno il prompt registrato: lo dichiaro invece di ricostruirlo a memoria.
+- **Anche i documenti sull'AI sbagliano.** La prima stesura di questo documento conteneva citazioni di prompt inventate (AI-037): un testo plausibile non è una prova.
 
 ## 7. Valore prodotto
-- **Implementazione**: chart, script, pipeline, metriche e golden path dalla F0 alla F6 in 9 giorni di calendario (10-18/11), con test e validatori fin dalla prima versione.
+- **Implementazione**: chart, script, pipeline, metriche e golden path dalla F0 alla F6 in 10 giorni di calendario (10-19/11), con test e validatori fin dalla prima versione.
 - **Troubleshooting**: 10 guasti reali diagnosticati con evidenze. Tre comportamenti non ovvi sono diventati scenari del runbook: rolling update che nasconde un'immagine rotta,
   connessioni gRPC già aperte che nascondono un Service vuoto, DNS che "mente" (AI-029).
 - **Operations**: rischi per la demo trovati prima del colloquio (script che falliva dopo un riavvio, `install.sh` che si sarebbe fermato 10 minuti a metà demo: AI-010, AI-021).
