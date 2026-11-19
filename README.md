@@ -39,6 +39,8 @@ l'equivalenza senza un vantaggio chiaro, mentre Online Boutique è la scelta ind
 - [Sicurezza e limiti residui](docs/SECURITY.md)
 - [Runbook: verifica, troubleshooting, rollback](docs/RUNBOOK.md)
 - [Krateo: valutazione e PoC minima](docs/KRATEO.md)
+- [Demo in 11 passi, con comandi copia-incolla](docs/DEMO.md)
+- [Uso dell'AI: strumenti, casi, verifiche, limiti](docs/AI_USAGE.md) e [registro completo](docs/ai-log/AI_USAGE_LOG.md)
 
 ## CI/CD e GitOps
 ```mermaid
@@ -65,7 +67,21 @@ flowchart LR
 - **UI di Argo CD**: http://argocd.localhost/, utente `admin`, password stampata da `./scripts/argocd-password.sh` (resta solo nel cluster).
 
 ## Avvio rapido (locale, kind)
-Prerequisiti: Docker, kind v0.33.0, kubectl v1.37.x, Helm v4.3.x, **kubeseal v0.41.2**, openssl; `jq` per alcuni comandi del [runbook](docs/RUNBOOK.md).
+Prerequisiti (versioni con cui il progetto è stato provato; Linux o WSL2 Ubuntu):
+
+| Strumento | Versione | Verifica | Serve per |
+|---|---|---|---|
+| Docker Engine | 29.x | `docker --version` | nodo kind, build dell'immagine |
+| kind | v0.33.0 | `kind version` | cluster locale (nodo Kubernetes v1.37.0, immagine fissata per digest in `kind/cluster.yaml`) |
+| kubectl | v1.37.x | `kubectl version --client` | tutto (al massimo una minor di distanza dal nodo) |
+| Helm | v4.3.x | `helm version --short` | installazione di piattaforma e app |
+| kubeseal | **v0.41.2** | `kubeseal --version` | secret cifrati (vedi sotto) |
+| openssl, curl | qualsiasi | `openssl version` | password generate, verifiche HTTP |
+| jq | 1.6+ | `jq --version` | runbook, demo |
+| gh (GitHub CLI) | 2.x, autenticato | `gh auth status` | solo per i passi 7 e 9 della demo (PR) |
+| shellcheck, kubeconform | 0.8.0, v0.8.0 | `shellcheck -V`, `kubeconform -v` | solo per i [test](#test) locali |
+
+Risorse: provato con 8 CPU e 10 GB di RAM assegnati a WSL2. con dev, prod, Argo CD, monitoring e la PoC Krateo il nodo usa circa 5,6 GiB (`docker stats`, 19/11).
 Porte 80 e 443 libere su `localhost`. Installazione di kubeseal con verifica del checksum ufficiale:
 ```bash
 curl -sLO https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.41.2/kubeseal-0.41.2-linux-amd64.tar.gz
@@ -142,6 +158,34 @@ kubectl get applications -n argocd                                # boutique-dev
 kubectl get pods -n dev; kubectl get pods -n prod                 # tutti Running e READY
 curl -s -o /dev/null -w '%{http_code}\n' http://dev.boutique.localhost/   # 200
 ```
+
+## Test
+Gli stessi controlli della CI, eseguibili in locale dalla radice del repo:
+```bash
+shellcheck scripts/*.sh
+for env in dev prod; do helm lint helm-chart -f deploy/values-common.yaml -f "deploy/values-${env}.yaml"; done
+CRD_SCHEMAS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/89c736bdde38b5fecd0f8436ec5f3aa3679a3b86/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+for env in dev prod; do
+  helm template onlineboutique helm-chart -n "$env" -f deploy/values-common.yaml -f "deploy/values-${env}.yaml" \
+    | kubeconform -strict -summary -schema-location default -schema-location "$CRD_SCHEMAS"
+done                                                       # dev: 53 risorse valide, prod: 50
+kubeconform -strict -summary -schema-location default -schema-location "$CRD_SCHEMAS" deploy/secrets/ deploy/argocd/
+```
+Test del frontend (Go non serve sull'host: si usa un container; la prima volta ~6 minuti per scaricare immagine e moduli):
+```bash
+docker run --rm -v "$PWD/src/frontend:/src:ro" -w /src -e GOFLAGS=-buildvcs=false golang:1.27.1 \
+  sh -c 'go vet -copylocks=false ./... && go test -race ./...'
+```
+Test funzionali sul cluster: lo smoke test controlla per livelli Argo CD, Deployment, endpoint dei Service e pagine HTTP (home, prodotto, carrello)
+ed esce con codice diverso da 0 al primo problema. `scripts/fault.sh` riproduce 4 guasti in dev per provare diagnosi e ripristino ([runbook](docs/RUNBOOK.md) §3).
+```bash
+./scripts/smoke-test.sh dev      # == RESULT: OK (dev)
+./scripts/smoke-test.sh prod     # == RESULT: OK (prod)
+```
+
+## Demo
+La demo in 11 passi del §7 della challenge, con comandi copia-incolla, tempi e piano B, è in [docs/DEMO.md](docs/DEMO.md).
+Il passo 11 (uso dell'AI) è descritto in [docs/AI_USAGE.md](docs/AI_USAGE.md) §4.
 
 ---
 
