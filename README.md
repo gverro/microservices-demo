@@ -81,7 +81,7 @@ Prerequisiti (versioni con cui il progetto è stato provato; Linux o WSL2 Ubuntu
 | gh (GitHub CLI) | 2.x, autenticato | `gh auth status` | solo per i passi 7 e 9 della demo (PR) |
 | shellcheck, kubeconform | 0.8.0, v0.8.0 | `shellcheck -V`, `kubeconform -v` | solo per i [test](#test) locali |
 
-Risorse: provato con 8 CPU e 10 GB di RAM assegnati a WSL2. con dev, prod, Argo CD, monitoring e la PoC Krateo il nodo usa circa 5,6 GiB (`docker stats`, 19/11).
+Risorse: provato con 8 CPU e 10 GB di RAM assegnati a WSL2; con dev, prod, Argo CD, monitoring e la PoC Krateo il nodo usa circa 5,6 GiB (`docker stats`, 19/11).
 Porte 80 e 443 libere su `localhost`. Installazione di kubeseal con verifica del checksum ufficiale:
 ```bash
 curl -sLO https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.41.2/kubeseal-0.41.2-linux-amd64.tar.gz
@@ -93,6 +93,8 @@ tar -xzf kubeseal-0.41.2-linux-amd64.tar.gz kubeseal && install -m 755 kubeseal 
 ./scripts/install.sh          # cluster + Traefik + Sealed Secrets + immagine del frontend + monitoring + Argo CD, che poi installa dev e prod (idempotente)
 ./scripts/backup-sealing-key.sh   # una volta sola, dopo la prima installazione: salva la chiave di Sealed Secrets fuori da Git
 ```
+Da zero l'installazione richiede **12-23 minuti** (misurati: 704 s e 1391 s; la parte più lenta è il monitoring); un rilancio su un cluster esistente circa 35 s.
+Subito dopo, con il nodo ancora carico, il primo smoke test può dare `FAIL` temporanei (pod non ancora pronti): attendi un paio di minuti e rilancialo.
 Poi: **http://dev.boutique.localhost/** (dev), **http://boutique.localhost/** (prod), **http://argocd.localhost/** (Argo CD, password: `./scripts/argocd-password.sh`)
 e **http://grafana.localhost/** (Grafana, utente `admin`, password: `./scripts/grafana-password.sh`; dashboard "Online Boutique - Frontend").
 Prometheus non ha Ingress: `kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-prometheus 9090:9090` e poi http://localhost:9090. I nomi `*.localhost`

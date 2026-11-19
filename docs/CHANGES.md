@@ -50,6 +50,7 @@ tranne due file di workflow CI). Regola: si modifica l'upstream solo se serve a 
 | 42 | `docs/AI_USAGE.md`, `docs/ai-log/AI_USAGE_LOG.md` | Aggiunto (F7) | Uso dell'AI per ambito (strumenti, casi, prompt, accettato/modificato/scartato, verifiche, limiti, valore) e registro completo, con il dominio della rete di casa oscurato | §6, §8 sezione AI |
 | 43 | `docs/DEMO.md` | Aggiunto (F7) | Demo in 11 passi con comandi copia-incolla dalla radice del repo, tempi, piano B, tabella delle prove | §7, §8 README demo |
 | 44 | `README.md` | Modificato (F7) | Prerequisiti con versioni e comando di verifica, sezioni Test (controlli della CI in locale, test Go in container, smoke test) e Demo, link ai nuovi documenti | §8 README completo |
+| 45 | `README.md`, `docs/DEMO.md` | Modificato (F7) | Esito del clean-room test (clone nuovo, cluster vuoto, solo comandi del README): durata reale dell'installazione da zero (12-23 min) e nota sui FAIL temporanei del primo smoke test | §8 README completo |
 
 Codice applicativo (`src/`): fino alla F3 solo una riga del Dockerfile del frontend (#8); in F4 le metriche Prometheus del frontend (#26), attive solo con `METRICS_PORT`.
 Tutte le modifiche al chart sono **opzioni disattivate di default**: chi usa il chart come l'upstream ottiene lo stesso risultato.
