@@ -72,12 +72,20 @@ after="$(count_restarts)"
 
 echo "5/5 CompositionDefinition boutique-service (downloads the chart, generates the CRD, starts its controller; ~3 min)"
 kubectl apply -f "${REPO_ROOT}/deploy/krateo/compositiondefinition.yaml" >/dev/null
-# After a version change Ready may still be True from the previous version: wait for the new CRD version first.
+# After a version change Ready is still True from the previous version until Krateo starts the new version's controller
+# (seen on the 0.1.0 -> 0.1.1 upgrade: CRD version added, then Ready=False, then the controller, then Ready=True).
+# So wait for the new CRD version, then for that version's controller, and only then for Ready.
 deadline=$(( SECONDS + 600 ))
 until kubectl get crd boutiqueservices.composition.krateo.io -o jsonpath='{.spec.versions[*].name}' 2>/dev/null | tr ' ' '\n' | grep -qx "${crd_version}"; do
   (( SECONDS < deadline )) || { echo "CRD version ${crd_version} not generated after 10 min: kubectl describe compositiondefinition boutique-service -n ${CATALOG_NAMESPACE}" >&2; exit 1; }
   sleep 5
 done
+controller="boutiqueservices-${crd_version}-controller"
+until kubectl get deployment "${controller}" -n "${CATALOG_NAMESPACE}" >/dev/null 2>&1; do
+  (( SECONDS < deadline )) || { echo "controller ${controller} not created after 10 min: kubectl describe compositiondefinition boutique-service -n ${CATALOG_NAMESPACE}" >&2; exit 1; }
+  sleep 5
+done
+kubectl rollout status deployment "${controller}" -n "${CATALOG_NAMESPACE}" --timeout 10m >/dev/null
 kubectl wait compositiondefinition boutique-service -n "${CATALOG_NAMESPACE}" --for condition=Ready=True --timeout 10m >/dev/null
 
 # The example request uses the SealedSecret in deploy/secrets/team-a: it only works with this cluster's sealing key.
