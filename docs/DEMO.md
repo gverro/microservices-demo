@@ -11,7 +11,7 @@ cd ~/projects/microservices-demo    # o la cartella in cui hai clonato il repo
 |---|---|---|---|
 | 1 | Clonare il repo e spiegare la struttura | [§1](#passo-1--clonare-il-repo-e-spiegare-la-struttura) | 2 min |
 | 2 | Build dell'immagine applicativa | [§2](#passo-2--build-dellimmagine-applicativa) | 2 min |
-| 3 | Installazione su Kubernetes | [§3-4](#passi-3-4--installazione-e-stato) | 2 min (rilancio idempotente; da zero ~10 min, fatto prima) |
+| 3 | Installazione su Kubernetes | [§3-4](#passi-3-4--installazione-e-stato) | 2 min (rilancio idempotente; da zero 12-23 min, fatto prima) |
 | 4 | Verifica di pod, service, ingress e configurazioni | [§3-4](#passi-3-4--installazione-e-stato) | 2 min |
 | 5 | Invocare gli endpoint principali | [§5](#passo-5--invocare-gli-endpoint-principali) | 1 min |
 | 6 | Health check, readiness, log e metriche | [§6](#passo-6--health-check-readiness-log-e-metriche) | 3 min |
@@ -109,7 +109,7 @@ e pubblicata dalla CI solo da `main` e solo se il tag non esiste (tag immutabili
 # 0. Sono sul cluster giusto? Deve rispondere: kind-boutique
 kubectl config current-context
 
-# 1. Installa (o riallinea) tutta la piattaforma: kind, Traefik, Sealed Secrets, Argo CD, Applications. ~10 minuti da zero, ~35 s se esiste già.
+# 1. Installa (o riallinea) tutta la piattaforma: kind, Traefik, Sealed Secrets, Argo CD, Applications. 12-23 minuti da zero, ~35 s se esiste già.
 #    Se prod aspetta una promozione stampa "WARNING: prod: boutique-prod is OutOfSync: a promotion is pending": è normale (vedi §7b).
 #    Dalla F4 le probe hanno una startupProbe: durante l'avvio si vedono eventi "Startup probe failed", ma nessun riavvio.
 #    Se si ferma subito dopo "installing ..." con "etcdserver: request timed out": etcd lento su WSL, rilanciare lo stesso comando.
