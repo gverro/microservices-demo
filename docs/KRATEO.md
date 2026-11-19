@@ -256,7 +256,19 @@ Errore di metodo da non ripetere: il primo controllo ha visto il core-provider `
 ma stava già riavviandosi. Lo script ora controlla i **riavvii** dopo 30 secondi, non solo lo stato.
 
 Versioni del golden path provate: la prima prova è stata fatta con il chart 0.1.0; la revisione indipendente ha portato al chart **0.1.1** (host legato al namespace,
-almeno 2 repliche in prod, revisione Git sempre stringa). Aggiornare la CompositionDefinition genera una nuova versione della CRD (`v0-1-1`) e un nuovo controller.
+almeno 2 repliche in prod, revisione Git sempre stringa). Aggiornamento provato sul cluster il 19/11 (VERIFICATO):
+
+```
+Passo;Esito;Tempo
+CompositionDefinition 0.1.0 -> 0.1.1;CRD con le versioni v0-1-0 e v0-1-1 servite (più "vacuum", la versione di storage di Krateo); controller v0-1-1 al posto del v0-1-0;~70 s
+Richiesta sbagliata (dry-run lato server, v0-1-1);rifiutata: tier gold e namespace dev;immediato
+Composition team-a (v0-1-1);release team-a-9676fz42 con chart boutique-service-0.1.1; Application Synced/Healthy; 11 pod Running; HTTP 200 su /, /product/OLJCESPC7Z, /cart; prodotto aggiunto e presente nel carrello; 12 NetworkPolicy;33 s dalla richiesta
+Cancellazione;Application e namespace rimossi, nessun residuo; dev e prod Healthy;29 s
+```
+
+Durante l'aggiornamento Krateo lascia `Ready=True` della versione vecchia finché non avvia il controller nuovo, poi lo porta a False e di nuovo a True:
+un `kubectl wait` subito dopo l'apply passa troppo presto. Lo script aspetta quindi la nuova versione della CRD, poi il Deployment `boutiqueservices-<versione>-controller`
+e solo dopo `Ready`.
 
 **Su un clone o un fork.** La PoC è legata a questo repository e a questo cluster in tre punti:
 1. **SealedSecret di `team-a`**: si decifra solo con la chiave del cluster dell'autore. Senza il backup, `scripts/seal-secrets.sh team-a` e commit **nel repository
